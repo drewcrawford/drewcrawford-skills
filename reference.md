@@ -33,6 +33,8 @@ python scripts/gitea_builds.py <owner> <repo> [options]
 | `--run <run_id>` | integer | - | Show details for specific run |
 | `--download-logs` | flag | false | Download logs for all jobs in run (requires --run) |
 | `--wait` | flag | false | Wait for run to complete (requires --run) |
+| `--rerun` | flag | false | Rerun entire workflow (requires --run) |
+| `--rerun-job <job_id>` | integer | - | Rerun specific job (requires --run) |
 | `--timeout <seconds>` | integer | 3600 | Timeout for --wait in seconds |
 | `--commits <limit>` | integer | 10 | Number of commits to check |
 | `--branch <branch>` | string | default | Branch name to check |
@@ -52,6 +54,12 @@ python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
 # Wait for run with custom timeout
 python scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait --timeout 1800
 
+# Rerun failed workflow
+python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+
+# Rerun specific failed job
+python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
+
 # Check specific branch with more commits
 python scripts/gitea_builds.py Metropolis Metropolis --branch develop --commits 20
 
@@ -67,11 +75,14 @@ The script uses standard Unix exit codes for automation:
 
 | Exit Code | Meaning | When It Occurs |
 |-----------|---------|----------------|
-| 0 | Success | Run completed with all jobs successful (--wait mode only) |
-| 1 | Failure | Run completed with job failures, or run not found |
+| 0 | Success | Run completed successfully (--wait mode), or rerun triggered successfully (--rerun mode), or normal list/display operation completed |
+| 1 | Failure | Run completed with job failures, run not found, rerun failed, or execution error |
 | 127 | Timeout | --wait timeout reached before run completed |
 
-**Note:** Exit codes are only meaningful when using `--wait` mode. Without `--wait`, the script exits with 0 on successful execution or 1 on errors.
+**Mode-specific exit codes:**
+- **--wait mode:** Exit code reflects build outcome (0=success, 1=failure, 127=timeout)
+- **--rerun mode:** Exit code reflects whether rerun was triggered (0=triggered, 1=failed to trigger)
+- **Normal mode:** Exit code is 0 on successful execution or 1 on errors
 
 ### Checking Exit Codes in Scripts
 
@@ -176,6 +187,44 @@ GET /api/v1/repos/{owner}/{repo}/actions/jobs/{job_id}/logs
 - Requires Gitea v1.24.0 or later
 - Returns 404 if logs are not available or job doesn't exist
 - Job IDs are obtained from the run jobs endpoint, not from commit statuses
+
+### Rerun Workflow
+```
+POST /api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/rerun
+```
+**Parameters:**
+- `run_id` (integer) - Workflow run database ID
+
+**Authentication:** Required (write access)
+**Returns:** Empty response (or JSON response)
+**Used when:** Rerunning failed workflow with --rerun flag
+
+**Notes:**
+- **NOT YET AVAILABLE:** Requires PR #35382 to be merged (still pending as of Nov 2025)
+- When available, will require write access to the repository
+- When available, will require Gitea v1.26+ (estimated)
+- Currently returns 404 (endpoint not found) on Gitea 1.25.1 and earlier
+- Will create a new workflow run with a new run number when available
+
+### Rerun Specific Job
+```
+POST /api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/jobs/{job_id}/rerun
+```
+**Parameters:**
+- `run_id` (integer) - Workflow run database ID
+- `job_id` (integer) - Job database ID
+
+**Authentication:** Required (write access)
+**Returns:** Empty response (or JSON response)
+**Used when:** Rerunning specific job with --rerun-job flag
+
+**Notes:**
+- **NOT YET AVAILABLE:** Requires PR #35382 to be merged (still pending as of Nov 2025)
+- When available, will require write access to the repository
+- When available, will require Gitea v1.26+ (estimated)
+- Currently returns 404 (endpoint not found) on Gitea 1.25.1 and earlier
+- Will handle job dependencies automatically when available
+- More efficient than rerunning entire workflow when only one job failed
 
 ---
 

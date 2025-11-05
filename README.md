@@ -58,6 +58,7 @@ python scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait
 - **View details** - See individual job statuses, platforms, and durations
 - **Download logs** - Download job logs from CI builds for debugging and archival
 - **Wait for completion** - Monitor builds with proper exit codes (0=success, 1=failure, 127=timeout)
+- **Rerun workflows** - Rerun failed workflows or specific jobs with a single command *(requires future Gitea version)*
 - **Branch filtering** - Check builds on specific branches
 - **CI/CD integration** - Perfect for automation scripts
 - **Visual indicators** - Clear status icons (✓ ✗ ○ ● ⊗ −)
@@ -80,6 +81,12 @@ python scripts/gitea_builds.py <owner> <repo> --run <run_id> --download-logs
 
 # Wait for build to complete
 python scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
+
+# Rerun failed workflow
+python scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun
+
+# Rerun specific failed job
+python scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun-job <job_id>
 
 # Check specific branch
 python scripts/gitea_builds.py <owner> <repo> --branch develop
@@ -171,7 +178,23 @@ python scripts/gitea_builds.py Metropolis Metropolis --run 215
 python scripts/gitea_builds.py Metropolis Metropolis --run 216 --wait
 ```
 
-### 4. Check Feature Branch
+### 4. Rerun Failed Build
+**Question:** "Rerun run 215 since I fixed the Windows ARM64 issue"
+
+**Claude uses:**
+```bash
+python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+```
+
+### 5. Rerun Specific Job
+**Question:** "Just rerun the Windows ARM64 job from run 215"
+
+**Claude uses:**
+```bash
+python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
+```
+
+### 6. Check Feature Branch
 **Question:** "Are builds passing on the develop branch?"
 
 **Claude uses:**
@@ -188,6 +211,8 @@ python scripts/gitea_builds.py Metropolis Metropolis --branch develop
 | `--run <id>` | integer | - | Show details for specific run |
 | `--download-logs` | flag | false | Download logs for all jobs (requires --run) |
 | `--wait` | flag | false | Wait for run completion (requires --run) |
+| `--rerun` | flag | false | Rerun entire workflow (requires --run) |
+| `--rerun-job <id>` | integer | - | Rerun specific job (requires --run) |
 | `--timeout <sec>` | integer | 3600 | Timeout for --wait in seconds |
 | `--commits <n>` | integer | 10 | Number of commits to check |
 | `--branch <name>` | string | default | Branch to check |
@@ -239,6 +264,8 @@ The script uses Gitea's commit status API:
 - `GET /api/v1/repos/{owner}/{repo}/actions/runs` - List workflow runs
 - `GET /api/v1/repos/{owner}/{repo}/actions/runs/{run}/jobs` - Get jobs for run
 - `GET /api/v1/repos/{owner}/{repo}/actions/jobs/{job}/logs` - Download job logs
+- `POST /api/v1/repos/{owner}/{repo}/actions/runs/{run}/rerun` - Rerun workflow
+- `POST /api/v1/repos/{owner}/{repo}/actions/runs/{run}/jobs/{job}/rerun` - Rerun specific job
 
 See [reference.md](reference.md) for technical details.
 

@@ -162,6 +162,41 @@ class GiteaClient:
         response.raise_for_status()
         return response.text
 
+    def rerun_workflow(self, owner: str, repo: str, run_id: int) -> dict:
+        """
+        Rerun an entire workflow run.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            run_id: Run ID (database ID, not run_number)
+
+        Returns:
+            API response as a dictionary
+        """
+        url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/rerun"
+        response = requests.post(url, headers=self.headers)
+        response.raise_for_status()
+        return response.json() if response.text else {}
+
+    def rerun_job(self, owner: str, repo: str, run_id: int, job_id: int) -> dict:
+        """
+        Rerun a specific job within a workflow run.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            run_id: Run ID (database ID, not run_number)
+            job_id: Job ID (database ID, not job index)
+
+        Returns:
+            API response as a dictionary
+        """
+        url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/jobs/{job_id}/rerun"
+        response = requests.post(url, headers=self.headers)
+        response.raise_for_status()
+        return response.json() if response.text else {}
+
 
 def extract_run_job_from_url(url: str) -> Optional[tuple]:
     """
@@ -406,6 +441,64 @@ def print_run_details(owner: str, repo: str, run_id: int, commits_data: List[dic
         print(f"Run #{run_id} not found in recent commits. Try fetching more commits.")
 
 
+def rerun_workflow_by_number(client: GiteaClient, owner: str, repo: str, run_number: int,
+                             job_id: Optional[int] = None) -> bool:
+    """
+    Rerun a workflow (or specific job) by run number.
+
+    Args:
+        client: GiteaClient instance
+        owner: Repository owner
+        repo: Repository name
+        run_number: Run number (sequential number shown in UI, not database ID)
+        job_id: Optional job ID to rerun specific job (if None, reruns entire workflow)
+
+    Returns:
+        True if rerun was successful, False otherwise
+    """
+    # Get all runs and find the one with matching run_number
+    runs = client.get_actions_runs(owner, repo)
+    matching_runs = [run for run in runs if run.get('run_number') == run_number]
+
+    if not matching_runs:
+        print(f"\nNo run found with run number #{run_number}")
+        return False
+
+    # Use the first matching run (there should only be one)
+    run = matching_runs[0]
+    run_id = run['id']
+
+    try:
+        if job_id:
+            print(f"\nRerunning job {job_id} from run #{run_number} (run ID: {run_id})...")
+            client.rerun_job(owner, repo, run_id, job_id)
+            print(f"✓ Successfully triggered rerun of job {job_id}")
+        else:
+            print(f"\nRerunning workflow run #{run_number} (run ID: {run_id})...")
+            client.rerun_workflow(owner, repo, run_id)
+            print(f"✓ Successfully triggered rerun of workflow run #{run_number}")
+
+        print(f"\nView progress at: {client.base_url}/{owner}/{repo}/actions/runs/{run_number}")
+        return True
+
+    except requests.exceptions.HTTPError as e:
+        print(f"\n✗ Error: Failed to rerun workflow")
+        if hasattr(e, 'response') and e.response is not None:
+            if e.response.status_code == 403:
+                print("  Reason: Permission denied. You may not have write access to this repository.")
+            elif e.response.status_code == 404:
+                print("  Reason: Rerun API endpoint not available.")
+                print("  The rerun API requires Gitea PR #35382, which is not yet merged.")
+                print("  Track progress at: https://github.com/go-gitea/gitea/pull/35382")
+                print("  Current Gitea version: 1.25.1 (rerun expected in v1.26+)")
+            else:
+                print(f"  Response: {e.response.text}")
+        return False
+    except Exception as e:
+        print(f"\n✗ Error: {e}")
+        return False
+
+
 def wait_for_run(owner: str, repo: str, run_id: int, base_url: str, timeout: int = 3600,
                  poll_interval: int = 10, max_commits: int = 50) -> int:
     """
@@ -520,6 +613,8 @@ def main():
         print("  --run <run_id>       Show details for a specific run")
         print("  --wait               Wait for a run to complete (requires --run)")
         print("  --download-logs      Download logs for all jobs in a run (requires --run)")
+        print("  --rerun              Rerun a failed workflow (requires --run)")
+        print("  --rerun-job <job_id> Rerun a specific failed job (requires --run)")
         print("  --timeout <seconds>  Timeout for --wait (default: 3600)")
         print("  --commits <limit>    Number of commits to check (default: 10)")
         print("  --branch <branch>    Check specific branch (default: repo default branch)")
@@ -529,6 +624,8 @@ def main():
         print("  python gitea_builds.py myuser myrepo --run 215 --download-logs")
         print("  python gitea_builds.py myuser myrepo --run 215 --wait")
         print("  python gitea_builds.py myuser myrepo --run 215 --wait --timeout 1800")
+        print("  python gitea_builds.py myuser myrepo --run 215 --rerun")
+        print("  python gitea_builds.py myuser myrepo --run 215 --rerun-job 1006")
         print("  python gitea_builds.py myuser myrepo --commits 20 --branch develop")
         print("\nExit codes (when using --wait):")
         print("  0   - Run completed successfully")
@@ -555,6 +652,8 @@ def main():
     branch = None
     wait = False
     download_logs = False
+    rerun = False
+    rerun_job_id = None
     timeout = 3600
 
     i = 3
@@ -574,6 +673,12 @@ def main():
         elif sys.argv[i] == '--download-logs':
             download_logs = True
             i += 1
+        elif sys.argv[i] == '--rerun':
+            rerun = True
+            i += 1
+        elif sys.argv[i] == '--rerun-job' and i + 1 < len(sys.argv):
+            rerun_job_id = int(sys.argv[i + 1])
+            i += 2
         elif sys.argv[i] == '--timeout' and i + 1 < len(sys.argv):
             timeout = int(sys.argv[i + 1])
             i += 2
@@ -589,6 +694,14 @@ def main():
         print("Error: --download-logs requires --run <run_id>")
         sys.exit(1)
 
+    if rerun and not run_id:
+        print("Error: --rerun requires --run <run_id>")
+        sys.exit(1)
+
+    if rerun_job_id and not run_id:
+        print("Error: --rerun-job requires --run <run_id>")
+        sys.exit(1)
+
     # Initialize client
     client = GiteaClient(GITEA_URL, GITEA_TOKEN)
 
@@ -597,6 +710,11 @@ def main():
         if wait:
             exit_code = wait_for_run(owner, repo, run_id, GITEA_URL, timeout=timeout)
             sys.exit(exit_code)
+
+        # Handle rerun mode
+        if rerun or rerun_job_id:
+            success = rerun_workflow_by_number(client, owner, repo, run_id, job_id=rerun_job_id)
+            sys.exit(0 if success else 1)
 
         # Get repository info to determine branch
         repo_info = client.get_repo_info(owner, repo)

@@ -17,6 +17,7 @@ Use this skill when the user:
 - Wants detailed job information for a specific run
 - Needs to download job logs from CI builds
 - Needs to wait for a build to complete (automation/CI/CD)
+- Wants to rerun a failed workflow or specific job
 - Asks about build logs or failures
 
 ## Quick Start
@@ -46,11 +47,27 @@ python scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
 - `1` - Build failed
 - `127` - Timeout reached
 
+### Rerun a failed workflow
+```bash
+python scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun
+```
+
+**Note:** Requires Gitea with rerun API support (PR #35382, not yet merged as of Nov 2025)
+
+### Rerun a specific failed job
+```bash
+python scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun-job <job_id>
+```
+
+**Note:** Requires Gitea with rerun API support (PR #35382, not yet merged as of Nov 2025)
+
 ## Common Options
 
 - `--run <run_id>` - Show specific run details
 - `--download-logs` - Download logs for all jobs in a run (requires --run)
 - `--wait` - Wait for run completion (requires --run)
+- `--rerun` - Rerun entire workflow (requires --run)
+- `--rerun-job <job_id>` - Rerun specific job (requires --run)
 - `--timeout <seconds>` - Wait timeout (default: 3600)
 - `--commits <limit>` - Check last N commits (default: 10)
 - `--branch <branch>` - Check specific branch
@@ -63,6 +80,8 @@ When the user asks about Gitea builds:
    - List builds → Use basic command
    - Specific run → Add `--run <run_id>`
    - Wait for completion → Add `--wait` flag
+   - Rerun workflow → Add `--rerun` flag
+   - Rerun specific job → Add `--rerun-job <job_id>`
    - Different branch → Add `--branch <name>`
 
 2. **Execute with Bash tool:**
@@ -74,6 +93,7 @@ When the user asks about Gitea builds:
    - List view: Summarize pass/fail status
    - Run details: Identify failed jobs
    - Wait mode: Report exit code meaning
+   - Rerun: Confirm workflow/job restarted
 
 4. **Status indicators:**
    - ✓ success, ✗ failure, ○ pending, ● running
@@ -93,6 +113,16 @@ python scripts/gitea_builds.py Metropolis Metropolis --run 215
 **Download logs for debugging:**
 ```bash
 python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+```
+
+**Rerun failed workflow:**
+```bash
+python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+```
+
+**Rerun specific failed job:**
+```bash
+python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
 ```
 
 **CI/CD automation:**
