@@ -15,6 +15,7 @@ Use this skill when the user:
 - Wants to list recent workflow runs
 - Needs to check if a build passed or failed
 - Wants detailed job information for a specific run
+- Needs to download job logs from CI builds
 - Needs to wait for a build to complete (automation/CI/CD)
 - Asks about build logs or failures
 
@@ -30,6 +31,11 @@ python scripts/gitea_builds.py <owner> <repo>
 python scripts/gitea_builds.py <owner> <repo> --run <run_id>
 ```
 
+### Download job logs
+```bash
+python scripts/gitea_builds.py <owner> <repo> --run <run_id> --download-logs
+```
+
 ### Wait for build completion
 ```bash
 python scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
@@ -43,6 +49,7 @@ python scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
 ## Common Options
 
 - `--run <run_id>` - Show specific run details
+- `--download-logs` - Download logs for all jobs in a run (requires --run)
 - `--wait` - Wait for run completion (requires --run)
 - `--timeout <seconds>` - Wait timeout (default: 3600)
 - `--commits <limit>` - Check last N commits (default: 10)
@@ -81,6 +88,11 @@ python scripts/gitea_builds.py Metropolis Metropolis
 **Diagnose failure:**
 ```bash
 python scripts/gitea_builds.py Metropolis Metropolis --run 215
+```
+
+**Download logs for debugging:**
+```bash
+python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
 ```
 
 **CI/CD automation:**

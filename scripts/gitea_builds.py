@@ -10,6 +10,7 @@ import requests
 import sys
 import re
 import time
+import os
 from datetime import datetime
 from typing import Optional, Dict, List
 from collections import defaultdict
@@ -109,6 +110,58 @@ class GiteaClient:
         response.raise_for_status()
         return response.json()
 
+    def get_actions_runs(self, owner: str, repo: str) -> List[dict]:
+        """
+        Get actions runs for a repository.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+
+        Returns:
+            List of workflow runs
+        """
+        url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/actions/runs"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        data = response.json()
+        return data.get('workflow_runs', [])
+
+    def get_run_jobs(self, owner: str, repo: str, run_id: int) -> List[dict]:
+        """
+        Get jobs for a specific workflow run.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            run_id: Run ID (database ID, not run_number)
+
+        Returns:
+            List of jobs
+        """
+        url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/jobs"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        data = response.json()
+        return data.get('jobs', [])
+
+    def download_job_logs(self, owner: str, repo: str, job_id: int) -> str:
+        """
+        Download logs for a specific job.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            job_id: Job ID (database ID, not job index)
+
+        Returns:
+            Log content as a string
+        """
+        url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/actions/jobs/{job_id}/logs"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        return response.text
+
 
 def extract_run_job_from_url(url: str) -> Optional[tuple]:
     """
@@ -179,6 +232,75 @@ def group_statuses_by_run(statuses: List[dict]) -> Dict[int, List[dict]]:
                 runs[run_id].append(status)
 
     return runs
+
+
+def download_run_logs(client: GiteaClient, owner: str, repo: str, run_number: int,
+                      output_dir: str = "logs") -> int:
+    """
+    Download logs for all jobs in a run.
+
+    Args:
+        client: GiteaClient instance
+        owner: Repository owner
+        repo: Repository name
+        run_number: Run number (sequential number shown in UI, not database ID)
+        output_dir: Base directory for logs (default: "logs")
+
+    Returns:
+        Number of logs successfully downloaded
+    """
+    run_dir = os.path.join(output_dir, f"run_{run_number}")
+    os.makedirs(run_dir, exist_ok=True)
+
+    # Get all runs and find the one with matching run_number
+    runs = client.get_actions_runs(owner, repo)
+    matching_runs = [run for run in runs if run.get('run_number') == run_number]
+
+    if not matching_runs:
+        print(f"\nNo run found with run number #{run_number}")
+        return 0
+
+    # Use the first matching run (there should only be one)
+    run = matching_runs[0]
+    run_id = run['id']
+
+    # Get jobs for this run
+    jobs = client.get_run_jobs(owner, repo, run_id)
+
+    if not jobs:
+        print(f"\nNo jobs found for run #{run_number} (run ID: {run_id})")
+        return 0
+
+    success_count = 0
+    print(f"\nDownloading logs for run #{run_number} (run ID: {run_id}) to {run_dir}/")
+    print("-" * 80)
+
+    for job in sorted(jobs, key=lambda j: j['id']):
+        job_id = job['id']
+        job_name = job.get('name', f'job_{job_id}')
+
+        # Create a safe filename from the job name
+        safe_name = re.sub(r'[^\w\-_]', '_', job_name)
+        log_file = os.path.join(run_dir, f"{job_id}_{safe_name}.log")
+
+        try:
+            print(f"  Downloading job {job_id} ({job_name[:60]})...", end=' ')
+            logs = client.download_job_logs(owner, repo, job_id)
+
+            with open(log_file, 'w') as f:
+                f.write(logs)
+
+            file_size = len(logs)
+            print(f"✓ ({file_size} bytes)")
+            success_count += 1
+
+        except requests.exceptions.RequestException as e:
+            print(f"✗ Error: {e}")
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 404:
+                print(f"    (Logs may not be available for this job)")
+
+    print(f"\nSuccessfully downloaded {success_count}/{len(jobs)} log files to {run_dir}/")
+    return success_count
 
 
 def print_builds_summary(owner: str, repo: str, commits_data: List[dict], base_url: str, branch: str):
@@ -274,9 +396,10 @@ def print_run_details(owner: str, repo: str, run_id: int, commits_data: List[dic
                 status_icon = format_status(status)
                 print(f"{job_id:<8} {status_icon} {status:<8} {context:<50} {description}")
 
-            print(f"\nView logs for jobs:")
+            print(f"\nView or download logs:")
             print(f"  Job view URL: {base_url}{jobs[0]['target_url']}")
-            print(f"  Or navigate to: {base_url}/{owner}/{repo}/actions/runs/{run_id}")
+            print(f"  Navigate to: {base_url}/{owner}/{repo}/actions/runs/{run_id}")
+            print(f"  Download logs: python {sys.argv[0]} {owner} {repo} --run {run_id} --download-logs")
             break
 
     if not found:
@@ -396,12 +519,14 @@ def main():
         print("\nOptions:")
         print("  --run <run_id>       Show details for a specific run")
         print("  --wait               Wait for a run to complete (requires --run)")
+        print("  --download-logs      Download logs for all jobs in a run (requires --run)")
         print("  --timeout <seconds>  Timeout for --wait (default: 3600)")
         print("  --commits <limit>    Number of commits to check (default: 10)")
         print("  --branch <branch>    Check specific branch (default: repo default branch)")
         print("\nExamples:")
         print("  python gitea_builds.py myuser myrepo")
         print("  python gitea_builds.py myuser myrepo --run 215")
+        print("  python gitea_builds.py myuser myrepo --run 215 --download-logs")
         print("  python gitea_builds.py myuser myrepo --run 215 --wait")
         print("  python gitea_builds.py myuser myrepo --run 215 --wait --timeout 1800")
         print("  python gitea_builds.py myuser myrepo --commits 20 --branch develop")
@@ -429,6 +554,7 @@ def main():
     commit_limit = 10
     branch = None
     wait = False
+    download_logs = False
     timeout = 3600
 
     i = 3
@@ -445,6 +571,9 @@ def main():
         elif sys.argv[i] == '--wait':
             wait = True
             i += 1
+        elif sys.argv[i] == '--download-logs':
+            download_logs = True
+            i += 1
         elif sys.argv[i] == '--timeout' and i + 1 < len(sys.argv):
             timeout = int(sys.argv[i + 1])
             i += 2
@@ -454,6 +583,10 @@ def main():
     # Validate arguments
     if wait and not run_id:
         print("Error: --wait requires --run <run_id>")
+        sys.exit(1)
+
+    if download_logs and not run_id:
+        print("Error: --download-logs requires --run <run_id>")
         sys.exit(1)
 
     # Initialize client
@@ -479,6 +612,10 @@ def main():
 
         if run_id:
             print_run_details(owner, repo, run_id, commits, GITEA_URL)
+
+            # Handle log download if requested
+            if download_logs:
+                download_run_logs(client, owner, repo, run_id)
         else:
             print(f"Fetching build status for {owner}/{repo} on branch '{branch}' (checking last {commit_limit} commits)...")
             print_builds_summary(owner, repo, commits, GITEA_URL, branch)

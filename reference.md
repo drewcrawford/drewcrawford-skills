@@ -31,6 +31,7 @@ python scripts/gitea_builds.py <owner> <repo> [options]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--run <run_id>` | integer | - | Show details for specific run |
+| `--download-logs` | flag | false | Download logs for all jobs in run (requires --run) |
 | `--wait` | flag | false | Wait for run to complete (requires --run) |
 | `--timeout <seconds>` | integer | 3600 | Timeout for --wait in seconds |
 | `--commits <limit>` | integer | 10 | Number of commits to check |
@@ -44,6 +45,9 @@ python scripts/gitea_builds.py Metropolis Metropolis
 
 # View specific run
 python scripts/gitea_builds.py Metropolis Metropolis --run 215
+
+# Download logs for a run
+python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
 
 # Wait for run with custom timeout
 python scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait --timeout 1800
@@ -138,6 +142,41 @@ GET /api/v1/repos/{owner}/{repo}/statuses/{sha}
 **Returns:** Array of commit statuses (build results)
 **Used when:** Retrieving build/job information
 
+### List Workflow Runs
+```
+GET /api/v1/repos/{owner}/{repo}/actions/runs
+```
+**Authentication:** Required
+**Returns:** Array of workflow runs with run numbers and IDs
+**Used when:** Downloading logs (maps run numbers to run IDs)
+
+### Get Run Jobs
+```
+GET /api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/jobs
+```
+**Parameters:**
+- `run_id` (integer) - Workflow run database ID
+
+**Authentication:** Required
+**Returns:** Array of jobs for the specified run
+**Used when:** Downloading logs (gets job IDs)
+
+### Download Job Logs
+```
+GET /api/v1/repos/{owner}/{repo}/actions/jobs/{job_id}/logs
+```
+**Parameters:**
+- `job_id` (integer) - Job database ID
+
+**Authentication:** Required
+**Returns:** Plain text log output
+**Used when:** Downloading logs with --download-logs flag
+
+**Notes:**
+- Requires Gitea v1.24.0 or later
+- Returns 404 if logs are not available or job doesn't exist
+- Job IDs are obtained from the run jobs endpoint, not from commit statuses
+
 ---
 
 ## Configuration
@@ -223,6 +262,43 @@ Waiting for run #215 to complete (timeout: 3600s, polling every 10s)...
 
 Status updates only appear when job states change (efficient polling).
 
+### Download Logs View (--download-logs)
+
+```
+Run #215 - Commit 5a6119a
+Commit message: Re-enable old builds
+
+Job ID   Status     Description                                        Duration
+----------------------------------------------------------------------------------------------------
+0        ✓ success  / Release build (ubuntu-latest . +nightly wasm32-unknown-unknown ) (push) Successful in 54s
+1        ✓ success  / Release build (macos-latest .   ) (push)         Successful in 3m56s
+
+View or download logs:
+  Job view URL: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215/jobs/0
+  Navigate to: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215
+  Download logs: python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+
+Downloading logs for run #215 (run ID: 1234) to logs/run_215/
+--------------------------------------------------------------------------------
+  Downloading job 1001 (Release build (ubuntu-latest . +nightly wasm32-unkn... ✓ (15234 bytes)
+  Downloading job 1002 (Release build (macos-latest .   ))... ✓ (42156 bytes)
+
+Successfully downloaded 2/2 log files to logs/run_215/
+```
+
+**Output Directory Structure:**
+```
+logs/run_<run_number>/
+├── <job_id>_<sanitized_job_name>.log
+├── <job_id>_<sanitized_job_name>.log
+└── ...
+```
+
+**File Naming:**
+- Job ID prefix ensures unique, sortable filenames
+- Job names are sanitized (non-alphanumeric chars → underscores)
+- Extension is `.log` for all log files
+
 ### Status Icons
 
 | Icon | Meaning | Status |
@@ -240,11 +316,25 @@ Status updates only appear when job states change (efficient polling).
 
 ### How It Works
 
+**Basic Operation:**
 1. **Fetch commits** from repository via API
 2. **Retrieve commit statuses** for each commit
 3. **Parse target URLs** to extract run/job IDs
 4. **Group by run ID** and filter latest status per job
 5. **Display results** in formatted tables
+
+**Log Download Operation (--download-logs):**
+1. **Fetch workflow runs** via actions API
+2. **Map run number** (shown in UI) to run database ID
+3. **Get jobs** for the specific run via actions API
+4. **Download logs** for each job using job database IDs
+5. **Save to files** in organized directory structure
+
+**Key ID Mappings:**
+- **Run number** (e.g., #215) → sequential number shown in UI
+- **Run ID** (e.g., 1234) → database ID used by API
+- **Job ID** (e.g., 1001) → database ID used for log downloads
+- Job IDs are NOT the same as job indices in URLs (0, 1, 2...)
 
 ### Run/Job ID Extraction
 

@@ -72,7 +72,64 @@ You can view the logs at: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metr
 
 ---
 
-## Example 3: Wait for Build to Complete
+## Example 3: Download Job Logs
+
+**Scenario:** User wants to download logs from a build for debugging or archival.
+
+**User asks:** "Download the logs for run 215 so I can analyze the Windows ARM64 failure"
+
+**Command:**
+```bash
+python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+```
+
+**Output:**
+```
+Run #215 - Commit 5a6119a
+Commit message: Re-enable old builds
+
+Job ID   Status     Description                                        Duration
+----------------------------------------------------------------------------------------------------
+0        ✓ success  / Release build (ubuntu-latest . +nightly wasm32-unknown-unknown ) (push) Successful in 54s
+1        ✓ success  / Release build (macos-latest .   ) (push)         Successful in 3m56s
+2        ✓ success  / Release build (ubuntu-latest .   ) (push)        Successful in 6m34s
+3        ✓ success  / Release build (ubuntu-latest .  aarch64-unknown-linux-gnu ) (push) Successful in 7m8s
+4        ✓ success  / Release build (windows-latest .   ) (push)       Successful in 12m54s
+5        ✗ failure  / Release build (windows-latest .  aarch64-pc-windows-msvc ) (push) Failing after 6m39s
+
+View or download logs:
+  Job view URL: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215/jobs/0
+  Navigate to: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215
+  Download logs: python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+
+Downloading logs for run #215 (run ID: 1234) to logs/run_215/
+--------------------------------------------------------------------------------
+  Downloading job 1001 (Release build (ubuntu-latest . +nightly wasm32-unkn... ✓ (15234 bytes)
+  Downloading job 1002 (Release build (macos-latest .   ))... ✓ (42156 bytes)
+  Downloading job 1003 (Release build (ubuntu-latest .   ))... ✓ (38421 bytes)
+  Downloading job 1004 (Release build (ubuntu-latest .  aarch64-unknown-lin... ✓ (41823 bytes)
+  Downloading job 1005 (Release build (windows-latest .   ))... ✓ (45612 bytes)
+  Downloading job 1006 (Release build (windows-latest .  aarch64-pc-windows... ✓ (38945 bytes)
+
+Successfully downloaded 6/6 log files to logs/run_215/
+```
+
+**Files created:**
+```
+logs/run_215/
+├── 1001_Release_build__ubuntu-latest____nightly_wasm32-unknown-unknown__.log
+├── 1002_Release_build__macos-latest____.log
+├── 1003_Release_build__ubuntu-latest____.log
+├── 1004_Release_build__ubuntu-latest___aarch64-unknown-linux-gnu_.log
+├── 1005_Release_build__windows-latest____.log
+└── 1006_Release_build__windows-latest___aarch64-pc-windows-msvc_.log
+```
+
+**Claude should respond:** "I've downloaded all 6 job logs for run 215 into the `logs/run_215/` directory. Each job has its own log file named with the job ID and description. You can now examine the Windows ARM64 failure log at `logs/run_215/1006_Release_build__windows-latest___aarch64-pc-windows-msvc_.log` to see what went wrong."
+
+---
+
+## Example 4: Wait for Build to Complete
 
 **Scenario:** User wants to wait for a currently running build to finish.
 
@@ -112,7 +169,7 @@ Waiting for run #216 to complete (timeout: 3600s, polling every 10s)...
 
 ---
 
-## Example 4: Wait with Timeout
+## Example 5: Wait with Timeout
 
 **Scenario:** User wants to wait for a build but with a shorter timeout.
 
@@ -143,7 +200,7 @@ Exit code: 127
 
 ---
 
-## Example 5: Check Specific Branch
+## Example 6: Check Specific Branch
 
 **Scenario:** User wants to check builds on a feature branch.
 
@@ -169,7 +226,7 @@ Run ID   SHA       Branch          Status     Jobs   Commit Message
 
 ---
 
-## Example 6: CI/CD Automation Script
+## Example 7: CI/CD Automation Script
 
 **Scenario:** User wants to create a deployment script that waits for builds.
 
@@ -211,7 +268,7 @@ fi
 
 ---
 
-## Example 7: Check Multiple Commits
+## Example 8: Check Multiple Commits
 
 **Scenario:** User wants to see build history for more commits.
 
@@ -226,7 +283,7 @@ This will check the last 20 commits for build information instead of the default
 
 ---
 
-## Example 8: Monitoring Running Build
+## Example 9: Monitoring Running Build
 
 **Scenario:** A build is currently running and user wants live updates.
 
@@ -241,7 +298,7 @@ The script will poll every 10 seconds and show status changes as jobs progress f
 
 ---
 
-## Example 9: Quick Status Check
+## Example 10: Quick Status Check
 
 **Scenario:** User just wants a yes/no on whether latest build passed.
 
@@ -256,7 +313,7 @@ python scripts/gitea_builds.py Metropolis Metropolis
 
 ---
 
-## Example 10: Integration Testing Script
+## Example 11: Integration Testing Script
 
 **Scenario:** Run tests only if build passes.
 

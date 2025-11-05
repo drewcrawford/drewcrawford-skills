@@ -27,6 +27,7 @@ ln -s /Users/drew/Code/skills ~/.claude/skills/gitea-builds
 **After installation**, restart Claude Code. The skill activates automatically when you ask:
 - "Show me recent builds for Metropolis/Metropolis"
 - "What's the status of run 215?"
+- "Download the logs for run 215"
 - "Wait for build 216 to complete"
 
 No need to explicitly invoke the skill - Claude recognizes build-related questions and uses the skill automatically.
@@ -55,6 +56,7 @@ python scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait
 
 - **List builds** - View recent workflow runs with status, branch, and commit info
 - **View details** - See individual job statuses, platforms, and durations
+- **Download logs** - Download job logs from CI builds for debugging and archival
 - **Wait for completion** - Monitor builds with proper exit codes (0=success, 1=failure, 127=timeout)
 - **Branch filtering** - Check builds on specific branches
 - **CI/CD integration** - Perfect for automation scripts
@@ -72,6 +74,9 @@ python scripts/gitea_builds.py <owner> <repo>
 
 # View specific run details
 python scripts/gitea_builds.py <owner> <repo> --run <run_id>
+
+# Download logs for a run
+python scripts/gitea_builds.py <owner> <repo> --run <run_id> --download-logs
 
 # Wait for build to complete
 python scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
@@ -181,6 +186,7 @@ python scripts/gitea_builds.py Metropolis Metropolis --branch develop
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--run <id>` | integer | - | Show details for specific run |
+| `--download-logs` | flag | false | Download logs for all jobs (requires --run) |
 | `--wait` | flag | false | Wait for run completion (requires --run) |
 | `--timeout <sec>` | integer | 3600 | Timeout for --wait in seconds |
 | `--commits <n>` | integer | 10 | Number of commits to check |
@@ -230,6 +236,9 @@ The script uses Gitea's commit status API:
 - `GET /api/v1/user/repos` - List repositories
 - `GET /api/v1/repos/{owner}/{repo}/commits` - List commits
 - `GET /api/v1/repos/{owner}/{repo}/statuses/{sha}` - Get build statuses
+- `GET /api/v1/repos/{owner}/{repo}/actions/runs` - List workflow runs
+- `GET /api/v1/repos/{owner}/{repo}/actions/runs/{run}/jobs` - Get jobs for run
+- `GET /api/v1/repos/{owner}/{repo}/actions/jobs/{job}/logs` - Download job logs
 
 See [reference.md](reference.md) for technical details.
 
