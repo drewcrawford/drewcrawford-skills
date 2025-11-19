@@ -92,33 +92,27 @@ Priority: Project > Personal > Plugin (when names conflict)
 
 ### Installing Personal Skills
 
-Personal skills are available across all projects. There are two methods:
+Personal skills are available across all projects. To install a personal skill, copy the skill directory to `~/.claude/skills/`:
 
-#### Method 1: Direct Creation
-Place skill files directly in the personal skills directory:
 ```bash
 # Create personal skills directory if it doesn't exist
-mkdir -p ~/.claude/skills/skill-name
+mkdir -p ~/.claude/skills
 
-# Copy skill files
-cp -r /path/to/skill/* ~/.claude/skills/skill-name/
+# Copy the entire skill folder
+cp -r /path/to/skill-name ~/.claude/skills/
 ```
 
-#### Method 2: Symbolic Links (Recommended for Development)
-Use symlinks to maintain skills in a separate repository:
+Example:
 ```bash
-# Create a symlink from your development directory
-ln -s ~/Code/skills/write-skills ~/.claude/skills/write-skills
-
-# Verify the link
-ls -la ~/.claude/skills/
+# Install the write-skills skill
+cp -r ~/Code/skills/write-skills ~/.claude/skills/
 ```
 
-Benefits of symlinks:
-- Keep skills in version control
-- Easy updates across installations
-- Share development between projects
-- Test changes immediately
+To update an existing skill, simply copy it again to overwrite:
+```bash
+# Update a skill by copying again
+cp -r /path/to/skill-name ~/.claude/skills/
+```
 
 ### Installing Project Skills
 
@@ -128,10 +122,10 @@ Project skills are specific to a single project:
 cd /path/to/project
 
 # Create project skills directory
-mkdir -p .claude/skills/skill-name
+mkdir -p .claude/skills
 
-# Copy or link skill files
-cp -r /path/to/skill/* .claude/skills/skill-name/
+# Copy the entire skill folder
+cp -r /path/to/skill-name .claude/skills/
 ```
 
 ### Verifying Installation
