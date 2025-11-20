@@ -1,6 +1,6 @@
 ---
 name: stuck
-description: Detect when stuck on a problem and escalate to user. Use when you've tried multiple approaches without success, tests keep hanging or timing out, or you've spent >15 minutes on the same error. Also use when you find yourself saying "I'm overcomplicating this" or repeating similar failed attempts.
+description: Call when logs don’t fire, user repros fail but yours pass, you’re missing a dependency, or you’re repeating reruns with no new hypothesis. Prefer other skills first when they fit: `debug-wasm-tests` (wasm harness hangs), `rust-crate-docs` (API confusion), `wasm-time-best-practices` (wasm timing/Firefox). Escalation/architecture concerns → `dev-manager-escalation`. If in doubt or after the first failed fix with no new direction, escalate.
 ---
 
 # Stuck Detection and Escalation
