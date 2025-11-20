@@ -38,18 +38,53 @@ You should invoke this skill when you detect ANY of the following patterns:
 3. **Export Session Transcript** - Save the full conversation history
 4. **Request Escalation** - Ask the user for help or escalation to a senior agent
 
-## Important Compatibility Note
+## Agent Self-Identification
 
-**This skill and its scripts are specific to Claude Code**. The export scripts read from `~/.claude/history.jsonl`, which is only created by Claude Code sessions. If you're running in:
-- OpenAI Codex/ChatGPT
-- Google Gemini
-- Other AI assistants
+Before following this skill, verify which environment you're running in:
 
-The scripts will either fail or export an unrelated previous Claude Code session. Future versions of this skill will need agent-specific export scripts.
+Fast decision guide:
+- If you see tools like `TodoWrite`, `Task`, `AskUserQuestion`, `KillShell` and a system prompt saying you're Claude Code ⇒ follow Claude Code.
+- If you have a `task_boundary` tool or explicit PLANNING/EXECUTION/VERIFICATION modes ⇒ follow Antigravity.
+- If your system prompt says you're Codex/GPT-5 and you have tools like `shell_command` and `apply_patch` (but none of the above) ⇒ follow OpenAI Codex CLI.
+- If none of these match, use the Other AI Assistant path.
+
+### Claude Code
+**How to identify**: Your system prompt contains "You are Claude Code, Anthropic's official CLI for Claude" and you have tools like `TodoWrite`, `Task`, `AskUserQuestion`, `KillShell`.
+
+If you're in Claude Code: Follow all instructions in this skill. The export scripts read from `~/.claude/history.jsonl`.
+
+### OpenAI Codex CLI (GPT-5)
+**How to identify**: Your system prompt says you're Codex (GPT-5). You have tools like `shell_command`, `apply_patch`, `update_plan`, `view_image`, but not `TodoWrite`, `Task`, `AskUserQuestion`, `KillShell`, or `task_boundary`.
+
+If you're in Codex CLI:
+1. Immediately stop the stuck task.
+2. Prepare the status report from Step 2.
+3. Save that report locally to `stuck_status.md` in the current working directory.
+4. Ask the user to save/export the Codex CLI transcript manually and share it together with `stuck_status.md` to a senior agent.
+5. Skip the Claude export scripts—they will not work here.
+
+### Antigravity (Google DeepMind Advanced Agentic Coding)
+**How to identify**: You have a `task_boundary` tool, or operate in PLANNING/EXECUTION/VERIFICATION modes.
+
+If you're in Antigravity:
+1. **Immediately abandon the original stuck task**
+2. **Skip the export scripts** - they won't work for you
+3. Dump your complete transcript directly to a markdown file in the working directory
+4. Follow Step 2 (Prepare Status Report) but skip Step 3's script commands
+
+### Other AI Assistants
+**How to identify**: You don't match any of the patterns above (not Claude Code, not Antigravity, not Codex CLI).
+
+If you're in another environment:
+1. The Claude Code export scripts will fail or export an unrelated session
+2. **HALT and ask the user**: "I'm running in [your environment] and need agent-specific export instructions for this skill"
+3. Do NOT attempt the export scripts
 
 ## Instructions
 
 When you detect you're stuck, follow these steps:
+
+**Important**: As soon as a trigger matches, stop working on the task and switch to the environment-specific instructions above.
 
 ### Step 1: Stop Working
 Immediately stop trying to solve the current problem. Don't attempt "one more fix."
