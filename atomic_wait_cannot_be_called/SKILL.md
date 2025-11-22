@@ -28,37 +28,63 @@ A "worker thread" is:
 * has no Window object, instead its global object is `DedicatedWorkerGlobalScope`
 * Can not encounter the `Atomics.wait cannot be called in this context` error.
 
-The error `Atomics.wait cannot be called in this context` is twofold: you are on a main thread, and you are doing something that is blocking.
+# Error explanation
 
-## Application
+The error `Atomics.wait cannot be called in this context` is twofold:
+1.  You're on the main thread
+2.  You're making a blocking call
 
-There is a common fallacy that "you can't do blocking operations on wasm".  This is totally incorrect.  It is fine to do blocking operations on wasm, *from a worker thread*.  If you encounter this error, we know you are doing them *from the main thread*.  
+You can be confident that when you see this error, BOTH things are true.  The question is whether to change #1 or #2, so that the error is resolved.  You can do the same thing on a different thread, or you can do a different thing on the main thread.
+
+## Misconceptions
+
+There is a common fallacy that "you can't do blocking operations on wasm".  This is totally incorrect.  It is fine to do blocking operations on wasm, *from a worker thread*.  If you encounter this error, we know you are doing it *from the main thread*.  
 
 So you can either:
 
-1.  Find a way not to block
-2.  Block, but on a different thread
+1.  Eliminate blocking, by removing calls to blocking functions
+2.  Continue to block, continue to call the same functions, but on a different thread
 
-And we must figure out which one to do.
+You must carefully consider which way to go, considering the pros and cons.
 
 
 ## Identifying blocking functions
 
 Blocking operations can be difficult to identify. They may have names like `block`, `sleep`, `park`, or `wait`.  
 
+But they may not.  To specifically identify, produce a backtrace to identify the problematic function.
 
-But they may not.  To specifically identify, produce a backtrace.
-
-If that is difficult, consider using your rust-docs skill to try to identify blocking functions around the code in question.
+If that is difficult, consider using your rust-docs skill to try to identify blocking functions around the situation in question.
 
 ### Test situations
 
 The following are indicators you are on the main thread and will encounter this error for all your blocking calls:
 
+
 * `#[wasm_bindgen_test]` will run tests on the main thread
 * `#[test_executors::async_test]` complies to `#[wasm_bindgen_test]and runs on the main thread
 
-### Solution pattern
+### Problem pattern
+
+```rust
+#[test]
+fn test_blocking_operation() {
+	let mtx = Mutex::new(0);
+
+	//this blocking call may be dangerous on the main thread
+	let mut guard = mtx.blocking_operation();
+	// ... do work ...
+	*guard += 1;
+	
+	let result = *guard;
+	sender.send(result);
+}
+```
+
+
+### Solution pattern - worker thread
+
+This shows how to test a blocking function on WASM.  Since testing a blocking function is the purpose of this test, we will choose #2, continuing to block but on another thread.
 
 ```rust
 use std::sync::{Arc, Mutex};
@@ -93,14 +119,30 @@ async fn test_blocking_operation() {
 }
 ```
 
+### Solution pattern - nonblocking main thread
+
+Instead of moving blocking onto a worker thread, we will eliminate blocking on the main thread:
+
+```rust
+#[cfg_attr(target_arch = "wasm32" wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
+fn test_nonblocking_operation() {
+	let mtx = Mutex::new(0);
+	//we discovered this nonblocking call after using our rust-docs skill
+	let mut guard = mtx.spin_lock(); 
+	*guard += 1;
+	drop(guard);
+```
+
+
 # Escalation steps
 
 Before escalating to the user, use the `wasm_thread` skill for additional information.
 
 Escalate to the user if:
-96 +  * The blocking operation cannot easily be moved to a worker thread
-97 +  * You need to block on the main thread for architectural reasons
-98 +  * The fix requires significant restructuring of the test or application code
+* The blocking operation cannot easily be moved to a worker thread
+* You need to block on the main thread for architectural reasons
+* The fix requires significant restructuring of the test or application code
 
 
 
