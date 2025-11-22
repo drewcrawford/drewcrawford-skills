@@ -1,141 +1,266 @@
 ---
 name: rust-crate-docs
-description: Build and search documentation for third-party Rust crates. Use when asked about tokio, serde, reqwest, or any external Rust library. Provides accurate API names, function signatures, and usage examples directly from crate documentation. Triggers on questions about crate APIs, derive macros, async operations, or Rust dependencies.
+description: Build and search documentation for dependent Rust crates. Provides accurate API names, function 
+ signatures, usage examples, and important information directly from crate documentation.  Use this before searching the web for information about an external crate, or searching on disk for its sourcecode.
 allowed-tools: Bash, Glob, Grep, Read, WebFetch, TodoWrite, WebSearch, BashOutput, KillShell
 ---
 
-# Rust Crate Documentation Agent
+# Dependent Crate Documentation Manual
 
-You are a Rust crate documentation specialist. Your role is to provide accurate, authoritative information about third-party Rust crates by building and searching their documentation. You never guess or invent API details - you always consult the actual documentation.
+This skill covers how to explore, build, and search documentation for dependent crates in a Rust project.
 
-## Core Responsibilities
+## 0. Finding a Dependent Crate by API Name
 
-1. **Build Documentation**: When asked about a crate, immediately build its documentation using cargo doc or cargo rustdoc
-2. **Search Effectively**: Navigate and search through the generated documentation to find relevant information
-3. **Provide Verbatim Excerpts**: Copy relevant documentation sections exactly as they appear - never paraphrase or create your own examples
-4. **Handle Edge Cases**: Manage dev-dependencies, build-dependencies, and conditional compilation appropriately
+When you encounter an API and need to identify which crate provides it:
 
-## Instructions
-
-### Step 1: Identify the Crate
-Determine which crate(s) the question concerns. If unclear, ask for clarification.
-
-### Step 2: Build Documentation
-
-For standard dependencies:
+### Method 1: Search across all dependency source files
 ```bash
-cargo doc -p cratename
+# Search for a specific API name (e.g., a function, struct, or trait)
+grep -r "pub fn your_api_name" target/doc/src/
+grep -r "pub struct YourTypeName" target/doc/src/
+grep -r "pub trait YourTraitName" target/doc/src/
 ```
 
-For conditionally-compiled crates:
-- Identify the target and feature flags that trigger the dependency
-- Use: `cargo doc -p cratename --target <target> --features <features>`
-
-For dev-dependencies or build-dependencies:
-1. Temporarily move the dependency to `[dependencies]` in Cargo.toml
-2. Build the documentation
-3. Move the dependency back to its original section
-
-For JSON documentation (when HTML is insufficient):
+### Method 2: Use ripgrep for faster searching
 ```bash
-cargo +nightly rustdoc -p cratename -- -Zunstable-options --output-format json
+# More efficient with ripgrep
+rg "pub (fn|struct|trait|enum) YourApiName" target/doc/src/
 ```
 
-### Step 3: Search Documentation
+### Method 3: Check Cargo.lock for crate names
+```bash
+# List all dependencies
+cat Cargo.lock | grep "^name = " | sort -u
 
-For HTML documentation:
-- Start at `target/doc/cratename/index.html`
-- Navigate through modules, structs, traits, and functions
-- Use grep or file search to locate specific terms
-- Follow cross-references to related types and modules
+# Search for partial crate names
+cat Cargo.lock | grep -i "partial_name"
+```
 
-For JSON documentation:
-- Parse `target/doc/cratename.json`
-- Search for specific items by name or type
+## 1. Building Documentation for Dependent Crates
 
-### Step 4: Extract Relevant Information
+### Build docs for a specific crate
+```bash
+# For a regular dependency
+cargo doc -p crate_name --no-deps
 
-- Copy the exact function signatures, type definitions, and trait implementations
-- Include important notes, warnings, or requirements from the documentation
-- Preserve code examples exactly as shown in the documentation
-- Include links to related items when relevant
+# For a path dependency (works the same way!)
+cargo doc -p path_dependency_name --no-deps
 
-### Step 5: Format Your Response
+# Build with dependencies included
+cargo doc -p crate_name
+```
 
-Structure your answer as:
-1. Direct answer to the question
-2. Relevant documentation excerpts (verbatim)
-3. Additional context only if necessary for understanding
-4. References to related APIs or modules if helpful
+### Build all documentation
+```bash
+# Build docs for all dependencies
+cargo doc
 
-## Important Rules
+# Build and open in browser
+cargo doc --open
 
-- **NEVER write your own code examples** - only copy examples directly from documentation
-- **NEVER guess API names or signatures** - if you can't find it in docs, say so
-- **ALWAYS build fresh documentation** - don't rely on memory or assumptions
-- **PRESERVE formatting and code blocks** exactly as they appear in documentation
-- **INCLUDE important caveats** such as feature flags, platform restrictions, or version requirements
+# Build only for specific features
+cargo doc --features backend_wgpu
+```
 
-## Error Handling
+## 2. Searching Documentation Effectively
 
-If you encounter issues:
-- **Build failures**: Check if the crate exists, verify the name, check for required features
-- **Missing documentation**: Some crates may have minimal docs - report what's available
-- **Ambiguous questions**: Ask for clarification about which specific API or use case
-- **Version conflicts**: Note if documentation might differ between versions
+### HTML Documentation Search
+Once documentation is built, it creates searchable HTML at `target/doc/`:
 
-## Quality Checks
+```bash
+# Open the main documentation index
+open target/doc/images_and_words/index.html
 
-Before providing your answer, verify:
-- The documentation was successfully built
-- The information directly answers the question
-- All code snippets are copied verbatim from documentation
-- You've included any important warnings or requirements
-- The response focuses on the specific question asked
+# Or for a specific crate
+open target/doc/wgpu/index.html
+```
 
-## Examples
+### Source Code Search in Docs
+Documentation includes source links. The source is stored at:
+```bash
+target/doc/src/crate_name/
+```
 
-### Example 1: Async File Operations with Tokio
+Search examples:
+```bash
+# Find usage examples in documentation
+rg "Example" target/doc/src/wgpu/
+rg "```rust" target/doc/src/  # Find code examples
 
-**User**: "I need to implement async file reading"
+# Find specific patterns
+rg "impl.*for.*Buffer" target/doc/src/wgpu/
+rg "#\[derive" target/doc/src/logwise/  # Find derive macros
+```
 
-**Agent Action**:
-1. Build tokio documentation: `cargo doc -p tokio --features fs`
-2. Navigate to `target/doc/tokio/fs/index.html`
-3. Find the `File` struct and `read_to_string` method
-4. Copy the exact API signature and example code from the documentation
+### Finding Related APIs
+```bash
+# Find all methods on a type
+rg "impl.*YourType" target/doc/src/crate_name/
 
-**Response**:
-"The tokio crate provides async file operations through the `tokio::fs` module. Here's the documentation for async file reading:
+# Find all trait implementations
+rg "impl.*TraitName.*for" target/doc/src/
 
-[Verbatim documentation excerpt with code examples]"
+# Find module structure
+find target/doc/src/crate_name -name "*.html" | head -20
+```
 
-### Example 2: Serde Derive Macros
+## 3. Identifying Repository URLs for Crates
 
-**User**: "Add JSON serialization to this struct"
+### Method 1: Check Cargo.toml metadata
+```bash
+# Look in the built documentation
+grep -r "repository" target/doc/src/*/Cargo.toml
 
-**Agent Action**:
-1. Build serde documentation: `cargo doc -p serde --features derive`
-2. Navigate to derive macro documentation
-3. Copy the exact derive attributes and usage patterns
+# Check crate metadata
+cargo metadata --format-version 1 | jq '.packages[] | select(.name=="crate_name") | .repository'
+```
 
-**Response**:
-"To enable JSON serialization with serde, use the following derive macros:
+### Method 2: Check the HTML documentation
+The generated docs often include repository links:
+```bash
+# Search for github/gitlab links in docs
+grep -r "github.com" target/doc/crate_name/*.html
+grep -r "Repository" target/doc/crate_name/*.html
+```
 
-[Verbatim documentation excerpt showing #[derive(Serialize, Deserialize)] and attributes]"
+### Method 3: Check Cargo.lock for git dependencies
+```bash
+# For git dependencies
+grep -A 2 'name = "crate_name"' Cargo.lock
+```
 
-### Example 3: HTTP POST with Reqwest
+### Method 4: Use cargo tree with verbose output
+```bash
+cargo tree -p crate_name -v
+```
 
-**User**: "Make an HTTP POST request with a JSON body"
+## 4. Searching Source Code in Documentation Directory
 
-**Agent Action**:
-1. Build reqwest documentation: `cargo doc -p reqwest --features json`
-2. Find the `Client::post` method and `RequestBuilder::json` method
-3. Copy the signatures and example usage
+### Understanding the documentation structure
+```
+target/doc/
+├── src/                 # Source code for all crates
+│   ├── wgpu/           # Source for wgpu crate
+│   ├── logwise/        # Source for logwise crate
+│   └── .../
+├── wgpu/               # Generated HTML docs
+├── logwise/            # Generated HTML docs
+└── .../
+```
 
-**Response**:
-"The reqwest crate provides the following methods for POST requests with JSON:
+### Effective source code searching
 
-[Verbatim documentation excerpt with method signatures and examples]"
+#### Find specific implementations
+```bash
+# Find where a function is defined
+rg "fn function_name\(" target/doc/src/
 
-Your expertise ensures other agents can correctly use third-party crates without trial and error. You are the authoritative source for crate API information.
+# Find struct definitions with their fields
+rg -A 10 "pub struct StructName" target/doc/src/
+
+# Find trait definitions
+rg -A 5 "pub trait TraitName" target/doc/src/
+```
+
+#### Find usage patterns
+```bash
+# Find how a type is used
+rg "StructName::" target/doc/src/
+
+# Find examples in tests
+rg "#\[test\]" target/doc/src/crate_name/ -A 20
+
+# Find macro usage
+rg "macro_name!" target/doc/src/
+```
+
+#### Advanced searches
+```bash
+# Find all public APIs in a crate
+rg "^pub " target/doc/src/crate_name/lib.rs
+
+# Find unsafe code
+rg "unsafe" target/doc/src/crate_name/
+
+# Find specific attributes
+rg "#\[cfg\(feature" target/doc/src/crate_name/
+
+# Find TODO/FIXME comments
+rg "(TODO|FIXME|HACK|NOTE):" target/doc/src/
+```
+
+## 5. Practical Workflow Example
+
+Here's a complete workflow for exploring a crate:
+
+```bash
+# Step 1: Build the documentation
+cargo doc -p wgpu
+
+# Step 2: Find the main module file
+ls target/doc/src/wgpu/
+
+# Step 3: Search for specific APIs
+rg "pub fn render" target/doc/src/wgpu/
+
+# Step 4: Open documentation in browser
+open target/doc/wgpu/index.html
+
+# Step 5: Examine source structure
+tree -L 2 target/doc/src/wgpu/
+
+# Step 6: Find examples
+rg "Example|example" target/doc/src/wgpu/ -A 5
+```
+
+## 6. Tips and Tricks
+
+### Quick crate inspection
+```bash
+# See all public items in a crate's lib.rs
+cat target/doc/src/crate_name/lib.rs | grep "^pub"
+
+# Find the crate version
+grep "^version = " target/doc/src/crate_name/Cargo.toml
+
+# List all modules
+find target/doc/src/crate_name -name "mod.rs" -o -name "lib.rs"
+```
+
+### Building docs faster
+```bash
+# Skip dependencies you don't need
+cargo doc -p your_target_crate --no-deps
+
+# Build specific workspace members only
+cargo doc --workspace --no-deps
+```
+
+## Common Issues and Solutions
+
+### Documentation not building
+```bash
+# Clean and rebuild
+cargo clean
+cargo doc
+
+# Check for compilation errors first
+cargo check
+```
+
+### Missing source in target/doc/src
+```bash
+# Ensure you're building with dependencies
+cargo doc  # not cargo doc --no-deps
+```
+
+### Path dependencies not found
+```bash
+# Ensure path dependencies are specified correctly in Cargo.toml
+# Then use the exact crate name (not path)
+cargo doc -p exact_crate_name
+```
+
+---
+
+This skill should help you effectively explore and understand the documentation of all dependent crates in your Rust project.
