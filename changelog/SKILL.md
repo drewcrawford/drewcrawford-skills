@@ -22,6 +22,11 @@ Your friendly neighborhood changelog whisperer, here to turn git commits into de
 - **Auto-categorize changes** - Features, fixes, and "behind-the-scenes magic" sorted automatically
 - **Inject personality** - Because "bug fixes and performance improvements" is so yesterday
 
+## Rules
+
+1.  Read each commit message, not just the --oneline format.
+2.  If a commit log is one line, read the diff and summarize what it does rather than rely on the log message.
+
 ## Common Tasks
 
 ### Generate a new changelog

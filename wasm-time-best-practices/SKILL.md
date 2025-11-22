@@ -32,4 +32,8 @@ Or, centralize it in a `sys` or `time` module:
 pub use std::time::*;
 #[cfg(target_arch = "wasm32")]
 pub use web_time::*;
-```
+```	
+
+# Further information
+
+For further information on the thread::sleep API in wasm, you should consult the `wasm_thread` skill.
