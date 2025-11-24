@@ -78,6 +78,14 @@ echo "Comparing docs: $COMPARE_TAG vs $CURRENT_REF..."
 # Clean up old comparison files
 rm -f old_docs.json new_docs.json
 
+# Generate new docs
+if [ "$QUIET" = true ]; then
+	cargo +nightly rustdoc -- -Z unstable-options --output-format json 2>/dev/null
+else
+	cargo +nightly rustdoc -- -Z unstable-options --output-format json
+fi
+cp "target/doc/${CRATE_NAME}.json" new_docs.json
+
 # Stash any current changes
 STASH_RESULT=$(git stash push -m "doc-compare" 2>&1 || true)
 NEEDS_POP=false
@@ -105,13 +113,6 @@ if [ "$NEEDS_POP" = true ]; then
 	git stash pop --quiet
 fi
 
-# Generate new docs
-if [ "$QUIET" = true ]; then
-	cargo +nightly rustdoc -- -Z unstable-options --output-format json 2>/dev/null
-else
-	cargo +nightly rustdoc -- -Z unstable-options --output-format json
-fi
-cp "target/doc/${CRATE_NAME}.json" new_docs.json
 
 # Extract named items with docs, using path for uniqueness
 jq -S '
