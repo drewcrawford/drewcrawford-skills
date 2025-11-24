@@ -22,10 +22,40 @@ Your friendly neighborhood changelog whisperer, here to turn git commits into de
 - **Auto-categorize changes** - Features, fixes, and "behind-the-scenes magic" sorted automatically
 - **Inject personality** - Because "bug fixes and performance improvements" is so yesterday
 
-## Rules
+## Gathering info
 
-1.  Read each commit message, not just the --oneline format.
-2.  If a commit log is one line, read the diff and summarize what it does rather than rely on the log message.
+To write a great changelog, we need to communicate what actually changed.
+
+First, we want to identify the last release.  This is probably in a tag:
+
+```bash
+LAST_RELEASE=`git tag --sort=-v:refname | head -1`
+```
+
+Then, let's read the recent commits to understand the changes:
+
+```bash
+git log "$LAST_RELEASE"..main --reverse \
+--pretty=format:"%C(yellow)%h%Creset %Cgreen%ad%Creset%n%B" \
+--date=short
+```
+
+```
+4de7dd7 2025-11-21
+Fix a TLS crash
+```
+
+If a change is cryptic we can ask for more info:
+
+```bash
+git show 4de7dd7
+```
+
+Public API changes are especially relevant to external users.  Use the changelog/scripts/compare_api.sh script to generate a list of public API changes.
+
+```bash
+release_prep/scripts/compare_api.sh
+```
 
 ## Common Tasks
 
