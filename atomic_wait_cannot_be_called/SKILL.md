@@ -1,6 +1,6 @@
 ---
 name: atomic_wait_cannot_be_called
-description: Provides information about diagnosing an error.  Use this skill IMMEDIATELY when you encounter an error like `Atomics.wait cannot be called in this context`
+description: Provides information about diagnosing an error on wasm32.  Use this skill IMMEDIATELY when you encounter an error like `Atomics.wait cannot be called in this context`
 ---
 
 # Summary

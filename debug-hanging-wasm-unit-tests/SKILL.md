@@ -23,6 +23,43 @@ If the problem is with the `--doc` command, you have a doctest problem.  Doctest
 
 2.  Is the hanging test a startup issue?  For example if you encounter an explicit error, that isn't a timeout, it may be unrelated to problems in tests.
 
+# Known issue
+
+One confirmed cause of this issue is the lack of certain rustflags.
+
+Ones to try are (.cargo/config.toml):
+
+```toml
+[unstable]
+# Tell *Cargo* to rebuild these crates for non-host targets (needs nightly)
+build-std = ["std", "panic_abort"]
+
+[target.'cfg(target_arch="wasm32")']
+runner = "wasm-bindgen-test-runner"
+rustflags = ["-C", "target-feature=+atomics",
+    # see https://github.com/wasm-bindgen/wasm-bindgen/issues/4727
+    # and https://github.com/rust-lang/rust/pull/147225
+    "-Clink-arg=--shared-memory",
+    # 4GB
+    "-Clink-arg=--max-memory=4294967296",
+    "-Clink-arg=--import-memory",
+    "-Clink-arg=--export=__wasm_init_tls",
+    "-Clink-arg=--export=__tls_size",
+    "-Clink-arg=--export=__tls_align",
+    "-Clink-arg=--export=__tls_base",
+    # Workaround for wasm-bindgen duplicate function declarations with v0 mangling
+    # see https://github.com/rustwasm/wasm-bindgen/issues/4820
+    "-Csymbol-mangling-version=legacy",
+    "-Zunstable-options",
+]
+```
+
+A second confirmed cause of this issue is the specific version of rust nightly.  These flags are up to date for  1.93.0-nightly (9fa462fe3 2025-11-21), but these seem to change every so often.
+
+Consider using the github-issues skill to check recent issues in wasm-bindgen.  Keep in mind that an issue there may have different symptoms, but could be the same underlying problem.
+
+
+
 ## Critical WASM Threading Rule
 
 **In browser WASM environments, the main test thread CANNOT block, spin-wait, or perform synchronous waiting operations.** The main thread must remain responsive to the browser's event loop. Blocking the main thread prevents worker threads from being scheduled, causing tests to hang indefinitely.
