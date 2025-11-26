@@ -14,7 +14,7 @@ You may be asked "start with step N".  This means we have already completed the 
 If you have a 'Task' or 'task mode' capability:
 
 1. Run each checklist step in a separate Task
-2. Tell each task where the release_prep folder is located
+2. Tell each task where the release_prep folder is located and where the path to its checklist file
 2. Require each task to record if it made any edits
 3. If the task made edits, re-run the task again, to see if it will makes further edits, or if alternatively it reports no edits
 4. When the subagent reports there are no edits, move on to the next checklist item.

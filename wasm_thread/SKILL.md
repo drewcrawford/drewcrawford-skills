@@ -1,6 +1,6 @@
 ---
 name: wasm_thread
-description: Provides information about correctly spawning threads on wasm.  Use this before writing code that spawns threads on wasm platforms.  Use this before diagnosing why spawning threads isn't working on a wasm platform.  Use this to diagnose why something is dropped, because it is passed to a spawn closure on a WASM platform that is not executing.
+description: Provides general information about how to use wasm_thread correctly, use when writing code or reasoning about the wasm_thread threading model.
 
 ---
 # wasm_thread
@@ -38,10 +38,6 @@ thread::Builder::new().name("My name".to_string())
 })
 .unwrap();
 ```
-
-# Use additional skill
-
-Using wasm_thread requires the skill wasm_atomics.  Before proceeding you should use that skill first.
 
 # Sleep
 
