@@ -1,39 +1,83 @@
 ---
-name: wasm32-workflows
-description: Troubleshoot and debug issues specific to wasm32-unknown-unknown target, WebAssembly platform workflows, browser-based WASM testing, and WASM-specific problems. Use when working with wasm32 targets, encountering WASM platform issues, debugging WebAssembly tests, or when logs/output seem incomplete in browser environments.
+name: wasm32-logging
+description: Provides critical information that logs on wasm32 might be missing or present but incomplete.  Use this when doing log-based debugging on wasm32.  Use it when inferring any information from the presence or absence of a log message on wasm32.
 ---
 
-# WASM32 Platform Workflows
+# The problem
 
-## Important Context
+wasm32 is run via a complex series of runners between the console log in JS and the runners and wrappers redirecting the output, and many of these tools have interesting bugs.
 
-This skill contains highly specific domain knowledge for the wasm32 platform. The WebAssembly target has unique characteristics and limitations that require specialized approaches different from native targets.
+In practice, you are likely to see no output or selective log output unless you carefully follow these instructions.
 
-## Critical Information About Logging
+We are still collecting data on how to best solve the problem, leading theories are listed below.  Note that often there are multiple root causes that must all be addressed for logging
 
-**WARNING**: Logs collected on the wasm32-unknown-unknown target are frequently inaccurate or incomplete, especially when running tests in browser environments.
+# Solution 0: 
 
-### Key Issues with WASM Logging
+println! and eprintln! are complete no ops on wasm.  You must either use  web_sys::console::log_1 or the logwise crate.
 
-1. **Incomplete Log Output**: Standard logging mechanisms may not capture all output when running on wasm32 targets
-2. **Browser Console Limitations**: Browser-based test runners may suppress or buffer output in ways that make debugging difficult
-3. **Asynchronous Execution**: WASM's execution model can cause logs to appear out of order or be lost entirely
+These tools do not fully solve the problem on their own but they might get you from "no logs" to "some logs".
 
-## Instructions
+Succeeded 0 out of 0 tries.
 
-When working with wasm32 workflow issues:
+# Solution: `exfiltrate_cli`
 
-1. **Assume logs are incomplete**: Any logs you collect from wasm32 targets should be considered potentially incomplete or misleading
-2. **Ask for manual log collection**: Always ask the user how they prefer to collect correct logs, as they may have specific manual methods for accurate log collection on their WASM setup
-3. **Consider platform-specific issues**: Be aware that standard debugging approaches may not work as expected on WASM targets
+The `exfiltrate_cli` tool provides an ability to remotely collect logwise logs, but it requires setup and orchestration.  Still it's a viable option and parts can be automated.
 
-## Typical Questions to Ask
+Succeeded 0 out of 0 tries.
 
-When encountering WASM-related issues, ask the user:
-- "How would you prefer to collect accurate logs from your wasm32 target?"
-- "Do you have a specific manual process for debugging WASM tests in your browser environment?"
-- "Are there any platform-specific logging tools or techniques you use for WebAssembly debugging?"
+# Solution 2: scripts/wasm-test-with-logs.sh and capture-logs.js
 
-## Note
+This is a custom orchestration layer that dumps logs via CDP.  See the usage for more information.
 
-We are currently preparing comprehensive documentation on accurate log collection methods for wasm32 targets. Until that documentation is available, rely on user guidance for their specific WASM debugging workflow.
+That said it is relatively new and you may encounter issues.
+
+Succeeded 1 out of 1 tries.
+
+# Solution: channels
+
+It is thought that one of the main problems with logging is that, logs from only some threads are discarded.  If that is correct, it means an approach like this could work:
+
+1.  Send logs into a channel
+2.  Do actual logging from the main thread.
+
+There are some details though.  The main thread cannot block, so you'd need an asynchronous channel, so there are many ways to introduce new bugs during this process.
+
+Succeeded 0 out of 0 tries.
+
+# Solution: don't panic
+
+Another cause of logs not appearing are panics that don't get logged themselves (so you abort at some unreported moment).  It's also suspected somewhere in the wrapper layer it's possible for a panic to "time-travel" and delete some logs from before the panic, meaning logs are not reliable narrators on when the panic took place.  You may be able to spot potential sources of panic manually and rewrite them, even temporarily, to return or something.
+
+Succeeded 0 out of 0 tries.
+
+# Solution: do panic
+
+Another approach is to try to use panic itself as a diagnostic tool.  Sometimes when you can't get good logs, you can still figure out if a panic occurred or not by some demonstratable change in behavior/output.  In this case you can use panics to smuggle 1 bit of information out by panicking conditionally.
+
+Succeeded 0 out of 0 tries.
+
+# Solution 5: console_error_panic_hook
+
+Sometimes this can improve visibility of a panic, but this is not guaranteed.  If this surfaces a panic that's reliable, but if it doesn't – maybe the hook just doesn't work here.
+
+Succeeded 0 out of 0 tries.
+
+# Solution 6: nocapture
+
+Sometimes this improves log output in tests:
+
+[cargo test...]  -- --nocapture
+
+Succeeded 0 out of 0 tries.
+
+
+
+
+
+
+
+
+
+
+
+

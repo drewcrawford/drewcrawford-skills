@@ -1,11 +1,27 @@
 ---
-name: debug-wasm-tests
-description: Debug hanging unit tests on wasm32-unknown-unknown target in browser. Use specifically when unit tests hang, timeout, or run indefinitely on WASM target. Use this when cargo +nightly test --target wasm32-unknown-unknown reaches the browser runner (e.g., Safari shows ‘Loading page elements…’) but never prints test results—this almost always means a WASM test is blocking the main thread.  Do not use for general test failures, compilation errors, or doctest issues.
+name: debug-hanging-wasm-unit-tests
+description: Debug hanging unit tests on wasm32-unknown-unknown target in browser. Use specifically when unit tests hang, timeout, or run indefinitely on WASM target. Use this when cargo +nightly test --target wasm32-unknown-unknown --examples --bin --libs reaches the browser runner (e.g., Safari shows ‘Loading page elements…’) but never prints test results—this almost always means a WASM test is blocking the main thread.  Do not use for general test failures, compilation errors, or doctest issues.
 ---
 
 # Debug Hanging WASM Unit Tests
 
 Expert guidance for identifying and fixing unit tests that hang indefinitely in WebAssembly browser environments.
+
+# Verification
+
+You want to verify some key assumptions to decide if this skill applies.
+
+1.  Is the hanging test a unit test, or a doctest?  For example, compare
+
+```
+cargo test --bin
+cargo test --lib
+cargo test --doc
+```
+
+If the problem is with the `--doc` command, you have a doctest problem.  Doctests have a completely different execution model and are NOT covered under this guide.
+
+2.  Is the hanging test a startup issue?  For example if you encounter an explicit error, that isn't a timeout, it may be unrelated to problems in tests.
 
 ## Critical WASM Threading Rule
 
@@ -124,10 +140,6 @@ These operations will hang if called from the main test thread on WASM:
 - Spawning threads with `thread::spawn()`
 - Awaiting futures/continuations
 - Non-blocking try operations (`mutex.try_lock()`, `channel.try_recv()`)
-
-## Note on Doctests
-
-**Doctests have a different execution model** and this guidance does not necessarily apply to them. Doctests that hang on WASM may require different solutions. This skill focuses specifically on unit tests (`#[test]` functions).
 
 ## Systematic Debugging Process
 
