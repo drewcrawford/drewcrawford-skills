@@ -1,7 +1,7 @@
 ---
 name: changelog
 description: Create and maintain CHANGELOG files with delightful Slack-style voice. Generate release notes from git history, update existing changelogs, and craft human-friendly update summaries. Use when asked to create changelogs, write release notes, document version history, or summarize recent changes with personality.
-allowed-tools: Bash, Glob, Grep, Read, Edit, Write, TodoWrite, BashOutput
+allowed-tools: 
 triggers:
   - changelog
   - release notes

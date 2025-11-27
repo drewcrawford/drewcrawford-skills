@@ -1,7 +1,7 @@
 ---
 name: GitHub Actions Monitor
 description: Monitor and interact with GitHub Actions CI/CD builds. Use when the user asks about GitHub builds, workflow runs, CI/CD status, build failures, or wants to wait for builds to complete. Also use when they mention checking build status, listing jobs, or monitoring continuous integration pipelines on GitHub.
-allowed-tools: Bash, Read
+allowed-tools: Bash(~/.claude/skills/github/scripts/github_builds:*)
 ---
 
 # GitHub Actions Monitor
@@ -25,27 +25,29 @@ Use this skill when the user:
 
 ### List recent builds
 ```bash
-python scripts/github_builds.py <owner> <repo>
+scripts/github_builds <owner> <repo>
 ```
+
+**NOTE: Using relative paths (~/.claude...) will ensure you run without permissions errors.
 
 ### View run details
 ```bash
-python scripts/github_builds.py <owner> <repo> --run <run_id>
+scripts/github_builds <owner> <repo> --run <run_id>
 ```
 
 ### Download job logs
 ```bash
-python scripts/github_builds.py <owner> <repo> --run <run_id> --download-logs
+scripts/github_builds <owner> <repo> --run <run_id> --download-logs
 ```
 
 ### Wait for build completion
 ```bash
-python scripts/github_builds.py <owner> <repo> --run <run_id> --wait
+scripts/github_builds <owner> <repo> --run <run_id> --wait
 ```
 
 ### Get repository topics (tags)
 ```bash
-python scripts/github_builds.py <owner> <repo> --topics
+scripts/github_builds <owner> <repo> --topics
 ```
 
 **Exit codes for --wait:**
@@ -55,12 +57,12 @@ python scripts/github_builds.py <owner> <repo> --topics
 
 ### Rerun a failed workflow
 ```bash
-python scripts/github_builds.py <owner> <repo> --run <run_id> --rerun
+scripts/github_builds <owner> <repo> --run <run_id> --rerun
 ```
 
 ### Rerun only failed jobs
 ```bash
-python scripts/github_builds.py <owner> <repo> --run <run_id> --rerun-failed
+scripts/github_builds <owner> <repo> --run <run_id> --rerun-failed
 ```
 
 ## Common Options
@@ -88,7 +90,7 @@ When the user asks about GitHub Actions builds:
 
 2. **Execute with Bash tool:**
    ```bash
-   python scripts/github_builds.py <owner> <repo> [options]
+   scripts/github_builds <owner> <repo> [options]
    ```
 
 3. **Interpret results:**
@@ -104,42 +106,42 @@ When the user asks about GitHub Actions builds:
 
 **Check recent builds:**
 ```bash
-python scripts/github_builds.py drewcrawford wasm_safe_mutex
+scripts/github_builds drewcrawford wasm_safe_mutex
 ```
 
 **Diagnose failure:**
 ```bash
-python scripts/github_builds.py drewcrawford wasm_safe_mutex --run 19609289127
+scripts/github_builds drewcrawford wasm_safe_mutex --run 19609289127
 ```
 
 **Download logs for debugging:**
 ```bash
-python scripts/github_builds.py drewcrawford wasm_safe_mutex --run 19609289127 --download-logs
+scripts/github_builds drewcrawford wasm_safe_mutex --run 19609289127 --download-logs
 ```
 
 **Rerun failed workflow:**
 ```bash
-python scripts/github_builds.py drewcrawford wasm_safe_mutex --run 19609289127 --rerun
+scripts/github_builds drewcrawford wasm_safe_mutex --run 19609289127 --rerun
 ```
 
 **Rerun only failed jobs:**
 ```bash
-python scripts/github_builds.py drewcrawford wasm_safe_mutex --run 19609289127 --rerun-failed
+scripts/github_builds drewcrawford wasm_safe_mutex --run 19609289127 --rerun-failed
 ```
 
 **Filter by branch:**
 ```bash
-python scripts/github_builds.py drewcrawford wasm_safe_mutex --branch main
+scripts/github_builds drewcrawford wasm_safe_mutex --branch main
 ```
 
 **Get repository topics:**
 ```bash
-python scripts/github_builds.py drewcrawford wasm_safe_mutex --topics
+scripts/github_builds drewcrawford wasm_safe_mutex --topics
 ```
 
 **CI/CD automation:**
 ```bash
-if python scripts/github_builds.py org repo --run 123 --wait --timeout 600; then
+if scripts/github_builds org repo --run 123 --wait --timeout 600; then
     echo "Deploy!"
 fi
 ```

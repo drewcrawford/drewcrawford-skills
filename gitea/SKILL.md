@@ -1,7 +1,6 @@
 ---
 name: Gitea Build Monitor
 description: Monitor and interact with Gitea CI/CD builds. Use when the user asks about Gitea builds, workflow runs, CI/CD status, build failures, or wants to wait for builds to complete. Also use when they mention checking build status, listing jobs, or monitoring continuous integration pipelines on Gitea.
-allowed-tools: Bash, Read
 ---
 
 # Gitea Build Monitor
