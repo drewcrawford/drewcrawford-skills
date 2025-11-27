@@ -75,6 +75,9 @@ fi
 
 echo "Comparing docs: $COMPARE_TAG vs $CURRENT_REF..."
 
+# Get crate name from Cargo.toml
+CRATE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name' | tr '-' '_')
+
 # Clean up old comparison files
 rm -f old_docs.json new_docs.json
 
@@ -92,9 +95,6 @@ NEEDS_POP=false
 if [[ ! "$STASH_RESULT" =~ "No local changes" ]]; then
 	NEEDS_POP=true
 fi
-
-# Get crate name from Cargo.toml
-CRATE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name' | tr '-' '_')
 
 # Checkout the tag and generate old docs
 git checkout "$COMPARE_TAG" --quiet

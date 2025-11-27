@@ -11,13 +11,17 @@ In practice, you are likely to see no output or selective log output unless you 
 
 We are still collecting data on how to best solve the problem, leading theories are listed below.  Note that often there are multiple root causes that must all be addressed for logging
 
-# Solution 0: 
+# Solution: console
 
 println! and eprintln! are complete no ops on wasm.  You must either use  web_sys::console::log_1 or the logwise crate.
 
 These tools do not fully solve the problem on their own but they might get you from "no logs" to "some logs".
 
 Succeeded 0 out of 0 tries.
+
+# Solution: error quieting
+
+Sometimes you get a panic due to a type that is dropped.  The reason it is dropped, is because of some other, secret panic.  If you see a drop panic you can't immediately explain, temporarily forgetting the type, and see if another panic falls out.
 
 # Solution: `exfiltrate_cli`
 
