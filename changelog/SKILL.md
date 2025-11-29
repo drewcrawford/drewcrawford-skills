@@ -1,13 +1,7 @@
 ---
 name: changelog
 description: Create and maintain CHANGELOG files with delightful Slack-style voice. Generate release notes from git history, update existing changelogs, and craft human-friendly update summaries. Use when asked to create changelogs, write release notes, document version history, or summarize recent changes with personality.
-allowed-tools: 
-triggers:
-  - changelog
-  - release notes
-  - version history
-  - what changed
-  - update log
+allowed-tools: Bash(git tag --sort=-v:refname), Bash(~/.claude/skills/changelog/scripts/compare_api.sh), Bash(/Users/drew/.claude/skills/changelog/scripts/compare_api.sh), Bash(rm -f old.txt new.txt), Bash(git show:*), Bash(git rev-list:*), Bash(git rev-head:*)
 ---
 
 # Changelog Craftsman 📝
@@ -54,7 +48,7 @@ git show 4de7dd7
 Public API changes are especially relevant to external users.  Use the changelog/scripts/compare_api.sh script to generate a list of public API changes.
 
 ```bash
-release_prep/scripts/compare_api.sh
+~/.claude/skills/changelog/scripts/compare_api.sh
 ```
 
 ## Common Tasks

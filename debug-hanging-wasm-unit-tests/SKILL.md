@@ -1,6 +1,6 @@
 ---
 name: debug-hanging-wasm-unit-tests
-description: Debug hanging unit tests on wasm32-unknown-unknown target in browser. Use specifically when unit tests hang, timeout, or run indefinitely on WASM target. Use this when cargo +nightly test --target wasm32-unknown-unknown --examples --bin --libs reaches the browser runner (e.g., Safari shows ‘Loading page elements…’) but never prints test results—this almost always means a WASM test is blocking the main thread.  Do not use for general test failures, compilation errors, or doctest issues.
+description: Debug hanging unit tests on wasm32-unknown-unknown target in browser. Use specifically when unit tests hang, timeout, or run indefinitely on WASM target. Use this when cargo +nightly test --target wasm32-unknown-unknown --examples --bin --libs reaches the browser runner (e.g., Safari shows ‘Loading page elements…’) but never prints test results—this almost always means a WASM test is blocking the main thread.  Use immediately for errors such as "Failed to detect test as having been run. It might have timed out."  Do not use for general test failures, compilation errors, or doctest issues.
 ---
 
 # Debug Hanging WASM Unit Tests

@@ -18,7 +18,7 @@ Complete technical documentation for the Gitea Build Monitor script.
 ### Basic Syntax
 
 ```bash
-python scripts/gitea_builds.py <owner> <repo> [options]
+scripts/gitea_builds.py <owner> <repo> [options]
 ```
 
 ### Required Arguments
@@ -43,28 +43,28 @@ python scripts/gitea_builds.py <owner> <repo> [options]
 
 ```bash
 # List builds (default: last 10 commits, default branch)
-python scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py Metropolis Metropolis
 
 # View specific run
-python scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py Metropolis Metropolis --run 215
 
 # Download logs for a run
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
 
 # Wait for run with custom timeout
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait --timeout 1800
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait --timeout 1800
 
 # Rerun failed workflow
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
 
 # Rerun specific failed job
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
 
 # Check specific branch with more commits
-python scripts/gitea_builds.py Metropolis Metropolis --branch develop --commits 20
+scripts/gitea_builds.py Metropolis Metropolis --branch develop --commits 20
 
 # Combined options
-python scripts/gitea_builds.py Metropolis Metropolis --branch main --commits 50
+scripts/gitea_builds.py Metropolis Metropolis --branch main --commits 50
 ```
 
 ---
@@ -88,7 +88,7 @@ The script uses standard Unix exit codes for automation:
 
 ```bash
 # Bash
-if python scripts/gitea_builds.py org repo --run 123 --wait; then
+if scripts/gitea_builds.py org repo --run 123 --wait; then
     echo "Success"
 else
     exit_code=$?
@@ -325,7 +325,7 @@ Job ID   Status     Description                                        Duration
 View or download logs:
   Job view URL: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215/jobs/0
   Navigate to: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215
-  Download logs: python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+  Download logs: scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
 
 Downloading logs for run #215 (run ID: 1234) to logs/run_215/
 --------------------------------------------------------------------------------

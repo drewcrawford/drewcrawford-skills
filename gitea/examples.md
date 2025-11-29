@@ -10,7 +10,7 @@ This document provides concrete examples of using the Gitea Build Monitor skill.
 
 **Command:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py Metropolis Metropolis
 ```
 
 **Output:**
@@ -38,7 +38,7 @@ Run ID   SHA       Branch          Status     Jobs   Commit Message
 
 **Command:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py Metropolis Metropolis --run 215
 ```
 
 **Output:**
@@ -80,7 +80,7 @@ You can view the logs at: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metr
 
 **Command:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
 ```
 
 **Output:**
@@ -100,7 +100,7 @@ Job ID   Status     Description                                        Duration
 View or download logs:
   Job view URL: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215/jobs/0
   Navigate to: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215
-  Download logs: python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+  Download logs: scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
 
 Downloading logs for run #215 (run ID: 1234) to logs/run_215/
 --------------------------------------------------------------------------------
@@ -137,7 +137,7 @@ logs/run_215/
 
 **Command:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 216 --wait
+scripts/gitea_builds.py Metropolis Metropolis --run 216 --wait
 ```
 
 **Output (during execution):**
@@ -177,7 +177,7 @@ Waiting for run #216 to complete (timeout: 3600s, polling every 10s)...
 
 **Command:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 217 --wait --timeout 600
+scripts/gitea_builds.py Metropolis Metropolis --run 217 --wait --timeout 600
 ```
 
 **If build completes successfully:**
@@ -208,7 +208,7 @@ Exit code: 127
 
 **Command:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --branch develop
+scripts/gitea_builds.py Metropolis Metropolis --branch develop
 ```
 
 **Output:**
@@ -245,7 +245,7 @@ REPO="Metropolis"
 
 echo "Waiting for build $BUILD_RUN_ID to complete..."
 
-if python scripts/gitea_builds.py "$OWNER" "$REPO" --run "$BUILD_RUN_ID" --wait --timeout 1800; then
+if scripts/gitea_builds.py "$OWNER" "$REPO" --run "$BUILD_RUN_ID" --wait --timeout 1800; then
     echo "✓ Build succeeded! Starting deployment..."
 
     # Your deployment commands here
@@ -276,7 +276,7 @@ fi
 
 **Command:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --commits 20
+scripts/gitea_builds.py Metropolis Metropolis --commits 20
 ```
 
 This will check the last 20 commits for build information instead of the default 10.
@@ -291,7 +291,7 @@ This will check the last 20 commits for build information instead of the default
 
 **Command:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 230 --wait --timeout 3600
+scripts/gitea_builds.py Metropolis Metropolis --run 230 --wait --timeout 3600
 ```
 
 The script will poll every 10 seconds and show status changes as jobs progress from pending → running → success/failure.
@@ -308,7 +308,7 @@ The script will poll every 10 seconds and show status changes as jobs progress f
 
 **Command:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
 ```
 
 **Output:**
@@ -321,7 +321,7 @@ View progress at: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/a
 
 **Claude should respond:** "I've successfully triggered a rerun of workflow run #215. All 6 jobs will be executed again. You can monitor the progress at the URL above, or use the --wait flag to wait for completion:
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait
 ```"
 
 ---
@@ -334,7 +334,7 @@ python scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait
 
 **Command:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
 ```
 
 **Output:**
@@ -358,7 +358,7 @@ View progress at: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/a
 **Commands (sequential):**
 ```bash
 # First, trigger the rerun
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
 
 # Then wait for it (note: this waits for the original run, not the new one)
 # The new run will have a new run number
@@ -373,7 +373,7 @@ Let me check the latest runs to find the new run number..."
 
 **Then execute:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py Metropolis Metropolis
 ```
 
 ---
@@ -386,7 +386,7 @@ python scripts/gitea_builds.py Metropolis Metropolis
 
 **Command:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py Metropolis Metropolis
 ```
 
 **Claude should:** Look at the first line of output and respond simply: "No, the latest build (run 215) failed. Would you like me to check what went wrong?"
@@ -405,7 +405,7 @@ python scripts/gitea_builds.py Metropolis Metropolis
 
 echo "Checking if build 240 passed..."
 
-if python scripts/gitea_builds.py Metropolis Metropolis --run 240 --wait --timeout 900; then
+if scripts/gitea_builds.py Metropolis Metropolis --run 240 --wait --timeout 900; then
     echo "Build passed! Running integration tests..."
     npm run test:integration
 else
@@ -435,7 +435,7 @@ REPO="Metropolis"
 echo "Checking latest build status..."
 
 # Get latest run and check status
-OUTPUT=$(python scripts/gitea_builds.py "$OWNER" "$REPO" | head -5)
+OUTPUT=$(scripts/gitea_builds.py "$OWNER" "$REPO" | head -5)
 LATEST_RUN=$(echo "$OUTPUT" | grep -oP 'Run ID\s+\K\d+' | head -1)
 STATUS=$(echo "$OUTPUT" | grep "$LATEST_RUN" | grep -oP '(success|failure)')
 
@@ -444,19 +444,19 @@ echo "Latest run: $LATEST_RUN - Status: $STATUS"
 if [ "$STATUS" = "failure" ]; then
     echo "Build failed. Attempting automatic rerun..."
 
-    if python scripts/gitea_builds.py "$OWNER" "$REPO" --run "$LATEST_RUN" --rerun; then
+    if scripts/gitea_builds.py "$OWNER" "$REPO" --run "$LATEST_RUN" --rerun; then
         echo "Rerun triggered successfully. Waiting for completion..."
 
         # Wait a bit for the new run to start
         sleep 10
 
         # Get the new run number (should be latest now)
-        NEW_OUTPUT=$(python scripts/gitea_builds.py "$OWNER" "$REPO" | head -5)
+        NEW_OUTPUT=$(scripts/gitea_builds.py "$OWNER" "$REPO" | head -5)
         NEW_RUN=$(echo "$NEW_OUTPUT" | grep -oP 'Run ID\s+\K\d+' | head -1)
 
         echo "New run #$NEW_RUN started. Waiting for completion..."
 
-        if python scripts/gitea_builds.py "$OWNER" "$REPO" --run "$NEW_RUN" --wait --timeout 1800; then
+        if scripts/gitea_builds.py "$OWNER" "$REPO" --run "$NEW_RUN" --wait --timeout 1800; then
             echo "✓ Rerun succeeded! Proceeding with deployment..."
             ./deploy.sh
             echo "✓ Deployment complete!"
@@ -490,13 +490,13 @@ fi
 
 ### Run not found
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 999
+scripts/gitea_builds.py Metropolis Metropolis --run 999
 ```
 Output: `Run #999 not found in last 10 commits`
 
 **Solution:** Increase commit search limit:
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 999 --commits 50
+scripts/gitea_builds.py Metropolis Metropolis --run 999 --commits 50
 ```
 
 ### Connection issues

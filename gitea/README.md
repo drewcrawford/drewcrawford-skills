@@ -41,13 +41,13 @@ Use directly from the command line:
 pip install -r requirements.txt
 
 # List recent builds
-python scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py Metropolis Metropolis
 
 # View specific run
-python scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py Metropolis Metropolis --run 215
 
 # Wait for completion
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait
 ```
 
 ---
@@ -71,28 +71,28 @@ python scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait
 
 ```bash
 # List recent builds (default: last 10 commits, default branch)
-python scripts/gitea_builds.py <owner> <repo>
+scripts/gitea_builds.py <owner> <repo>
 
 # View specific run details
-python scripts/gitea_builds.py <owner> <repo> --run <run_id>
+scripts/gitea_builds.py <owner> <repo> --run <run_id>
 
 # Download logs for a run
-python scripts/gitea_builds.py <owner> <repo> --run <run_id> --download-logs
+scripts/gitea_builds.py <owner> <repo> --run <run_id> --download-logs
 
 # Wait for build to complete
-python scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
+scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
 
 # Rerun failed workflow
-python scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun
+scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun
 
 # Rerun specific failed job
-python scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun-job <job_id>
+scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun-job <job_id>
 
 # Check specific branch
-python scripts/gitea_builds.py <owner> <repo> --branch develop
+scripts/gitea_builds.py <owner> <repo> --branch develop
 
 # Custom timeout (default: 3600s)
-python scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait --timeout 1800
+scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait --timeout 1800
 ```
 
 ### Exit Codes (--wait mode)
@@ -105,7 +105,7 @@ python scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait --timeout 18
 
 ```bash
 #!/bin/bash
-if python scripts/gitea_builds.py myorg myrepo --run 123 --wait --timeout 600; then
+if scripts/gitea_builds.py myorg myrepo --run 123 --wait --timeout 600; then
     echo "Build passed! Deploying..."
     ./deploy.sh
 else
@@ -159,7 +159,7 @@ GITEA_TOKEN = "your_personal_access_token"
 
 **Claude uses:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py Metropolis Metropolis
 ```
 
 ### 2. Diagnose Failure
@@ -167,7 +167,7 @@ python scripts/gitea_builds.py Metropolis Metropolis
 
 **Claude uses:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py Metropolis Metropolis --run 215
 ```
 
 ### 3. Monitor Build
@@ -175,7 +175,7 @@ python scripts/gitea_builds.py Metropolis Metropolis --run 215
 
 **Claude uses:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 216 --wait
+scripts/gitea_builds.py Metropolis Metropolis --run 216 --wait
 ```
 
 ### 4. Rerun Failed Build
@@ -183,7 +183,7 @@ python scripts/gitea_builds.py Metropolis Metropolis --run 216 --wait
 
 **Claude uses:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
 ```
 
 ### 5. Rerun Specific Job
@@ -191,7 +191,7 @@ python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
 
 **Claude uses:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
 ```
 
 ### 6. Check Feature Branch
@@ -199,7 +199,7 @@ python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
 
 **Claude uses:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --branch develop
+scripts/gitea_builds.py Metropolis Metropolis --branch develop
 ```
 
 ---
@@ -300,7 +300,7 @@ ping gitea.mermaid-gecko.ts.net
 
 ```bash
 # Increase commit search depth
-python scripts/gitea_builds.py owner repo --run 999 --commits 50
+scripts/gitea_builds.py owner repo --run 999 --commits 50
 ```
 
 ### Token Permissions
@@ -345,13 +345,13 @@ gitea-builds/
 
 ```bash
 # Test basic listing
-python scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py Metropolis Metropolis
 
 # Test specific run
-python scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py Metropolis Metropolis --run 215
 
 # Test wait mode with timeout
-python scripts/gitea_builds.py Metropolis Metropolis --run 214 --wait --timeout 30
+scripts/gitea_builds.py Metropolis Metropolis --run 214 --wait --timeout 30
 ```
 
 ---

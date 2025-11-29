@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Ensure cleanup on exit
+cleanup() {
+    rm -f old.txt new.txt
+}
+trap cleanup EXIT
+
 usage() {
     echo "Usage: $(basename "$0") [OPTIONS] [TAG]"
     echo ""
@@ -107,5 +113,4 @@ cargo public-api $OMIT_ARGS > new.txt
 # Show diff but don't fail script if there are differences
 diff old.txt new.txt || true
 
-rm old.txt
-rm new.txt
+# Cleanup happens automatically via trap

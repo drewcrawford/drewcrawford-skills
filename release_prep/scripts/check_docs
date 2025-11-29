@@ -1,0 +1,11 @@
+#!/bin/bash
+# Check for missing documentation in Rust crate
+
+set -e
+
+echo "Checking for missing documentation..."
+
+# Run cargo doc with -D missing_docs to treat missing docs as errors
+RUSTDOCFLAGS="-D missing_docs" cargo doc --no-deps 2>&1
+
+echo "✓ All public items are documented"

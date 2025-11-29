@@ -1,7 +1,7 @@
 ---
 name: Gitea Build Monitor
 description: Monitor and interact with Gitea CI/CD builds. Use when the user asks about Gitea builds, workflow runs, CI/CD status, build failures, or wants to wait for builds to complete. Also use when they mention checking build status, listing jobs, or monitoring continuous integration pipelines on Gitea.
-allowed-tools: Bash(python scripts/gitea_builds.py:*)
+allowed-tools: Bash(~/.claude/skills/gitea/scripts/gitea_builds.py:*)
 ---
    
 # Gitea Build Monitor
@@ -20,26 +20,35 @@ Use this skill when the user:
 - Wants to rerun a failed workflow or specific job
 - Asks about build logs or failures
 
+# Launch note:
+
+When launching scripts in this skill, use the synax
+
+```bash
+~/.claude/skills/gitea/scripts/my_script
+```
+
+
 ## Quick Start
 
 ### List recent builds
 ```bash
-python scripts/gitea_builds.py <owner> <repo>
+scripts/gitea_builds.py <owner> <repo>
 ```
 
 ### View run details
 ```bash
-python scripts/gitea_builds.py <owner> <repo> --run <run_id>
+scripts/gitea_builds.py <owner> <repo> --run <run_id>
 ```
 
 ### Download job logs
 ```bash
-python scripts/gitea_builds.py <owner> <repo> --run <run_id> --download-logs
+scripts/gitea_builds.py <owner> <repo> --run <run_id> --download-logs
 ```
 
 ### Wait for build completion
 ```bash
-python scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
+scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
 ```
 
 **Exit codes for --wait:**
@@ -49,14 +58,14 @@ python scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
 
 ### Rerun a failed workflow
 ```bash
-python scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun
+scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun
 ```
 
 **Note:** Requires Gitea with rerun API support (PR #35382, not yet merged as of Nov 2025)
 
 ### Rerun a specific failed job
 ```bash
-python scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun-job <job_id>
+scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun-job <job_id>
 ```
 
 **Note:** Requires Gitea with rerun API support (PR #35382, not yet merged as of Nov 2025)
@@ -86,7 +95,7 @@ When the user asks about Gitea builds:
 
 2. **Execute with Bash tool:**
    ```bash
-   python scripts/gitea_builds.py <owner> <repo> [options]
+   scripts/gitea_builds.py <owner> <repo> [options]
    ```
 
 3. **Interpret results:**
@@ -102,32 +111,32 @@ When the user asks about Gitea builds:
 
 **Check recent builds:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py Metropolis Metropolis
 ```
 
 **Diagnose failure:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py Metropolis Metropolis --run 215
 ```
 
 **Download logs for debugging:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
 ```
 
 **Rerun failed workflow:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
 ```
 
 **Rerun specific failed job:**
 ```bash
-python scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
+scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
 ```
 
 **CI/CD automation:**
 ```bash
-if python scripts/gitea_builds.py org repo --run 123 --wait --timeout 600; then
+if  scripts/gitea_builds.py org repo --run 123 --wait --timeout 600; then
     echo "Deploy!"
 fi
 ```
