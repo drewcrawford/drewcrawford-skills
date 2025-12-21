@@ -1,6 +1,19 @@
 #!/bin/bash
 set -e
 
+# Store the original ref globally for cleanup
+ORIGINAL_REF=""
+
+# Ensure cleanup on exit
+cleanup() {
+    rm -f old.txt new.txt
+    # Restore git state if we saved a ref
+    if [ -n "$ORIGINAL_REF" ]; then
+        git checkout "$ORIGINAL_REF" --quiet 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
 usage() {
     echo "Usage: $(basename "$0") [OPTIONS] [TAG]"
     echo ""
@@ -57,11 +70,12 @@ else
 fi
 
 # Get current branch/commit to return to
-CURRENT_REF=$(git rev-parse --abbrev-ref HEAD)
-if [ "$CURRENT_REF" = "HEAD" ]; then
+ORIGINAL_REF=$(git rev-parse --abbrev-ref HEAD)
+if [ "$ORIGINAL_REF" = "HEAD" ]; then
     # Already in detached HEAD; fall back to exact commit so we can restore it
-    CURRENT_REF=$(git rev-parse HEAD)
+    ORIGINAL_REF=$(git rev-parse HEAD)
 fi
+CURRENT_REF="$ORIGINAL_REF"
 
 # Get tag to compare against
 if [ -n "$TAG_ARG" ]; then
@@ -95,6 +109,8 @@ cargo public-api $OMIT_ARGS > old.txt
 
 # Return to original ref (branch name or commit)
 git checkout "$CURRENT_REF" --quiet
+# Clear ORIGINAL_REF since we've successfully restored
+ORIGINAL_REF=""
 
 # Pop stash if we stashed anything
 if [ "$NEEDS_POP" = true ]; then
@@ -107,5 +123,4 @@ cargo public-api $OMIT_ARGS > new.txt
 # Show diff but don't fail script if there are differences
 diff old.txt new.txt || true
 
-rm old.txt
-rm new.txt
+# Cleanup happens automatically via trap

@@ -1,6 +1,16 @@
 #!/bin/bash
 set -e
 
+# Cleanup function to restore git state
+cleanup() {
+	if [ -n "$CURRENT_REF" ] && [ -n "$CHECKED_OUT_TAG" ]; then
+		git checkout "$CURRENT_REF" --quiet 2>/dev/null || true
+		if [ "$NEEDS_POP" = true ]; then
+			git stash pop --quiet 2>/dev/null || true
+		fi
+	fi
+}
+
 usage() {
 	echo "Usage: $(basename "$0") [OPTIONS] [TAG]"
 	echo ""
@@ -96,8 +106,12 @@ if [[ ! "$STASH_RESULT" =~ "No local changes" ]]; then
 	NEEDS_POP=true
 fi
 
+# Set up trap to restore git state on any exit (including errors)
+trap cleanup EXIT
+
 # Checkout the tag and generate old docs
 git checkout "$COMPARE_TAG" --quiet
+CHECKED_OUT_TAG=true
 if [ "$QUIET" = true ]; then
 	cargo +nightly rustdoc -- -Z unstable-options --output-format json 2>/dev/null
 else
@@ -107,10 +121,12 @@ cp "target/doc/${CRATE_NAME}.json" old_docs.json
 
 # Return to original ref (branch name or commit)
 git checkout "$CURRENT_REF" --quiet
+CHECKED_OUT_TAG=""
 
 # Pop stash if we stashed anything
 if [ "$NEEDS_POP" = true ]; then
 	git stash pop --quiet
+	NEEDS_POP=false
 fi
 
 
