@@ -1,13 +1,19 @@
 #!/bin/bash
 set -e
 
+# Global state for cleanup
+NEEDS_POP=false
+CHECKED_OUT_TAG=""
+
 # Cleanup function to restore git state
 cleanup() {
+	# Pop stash if we stashed anything (do this first, even if checkout fails)
+	if [ "$NEEDS_POP" = true ]; then
+		git stash pop --quiet 2>/dev/null || true
+	fi
+	# Restore git state if we checked out a tag
 	if [ -n "$CURRENT_REF" ] && [ -n "$CHECKED_OUT_TAG" ]; then
 		git checkout "$CURRENT_REF" --quiet 2>/dev/null || true
-		if [ "$NEEDS_POP" = true ]; then
-			git stash pop --quiet 2>/dev/null || true
-		fi
 	fi
 }
 
@@ -101,7 +107,6 @@ cp "target/doc/${CRATE_NAME}.json" new_docs.json
 
 # Stash any current changes
 STASH_RESULT=$(git stash push -m "doc-compare" 2>&1 || true)
-NEEDS_POP=false
 if [[ ! "$STASH_RESULT" =~ "No local changes" ]]; then
 	NEEDS_POP=true
 fi
