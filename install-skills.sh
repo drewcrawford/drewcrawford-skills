@@ -20,6 +20,14 @@ echo
 # Create target directory if it doesn't exist
 mkdir -p "$TARGET_DIR"
 
+# Get list of existing skills before installation
+existing_skills=()
+if [ -d "$TARGET_DIR" ]; then
+    while IFS= read -r -d '' dir; do
+        existing_skills+=("$(basename "$dir")")
+    done < <(find "$TARGET_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
+fi
+
 # Find all directories containing SKILL.md
 skill_dirs=()
 while IFS= read -r skill_file; do
@@ -42,8 +50,34 @@ for skill_path in "${skill_dirs[@]}"; do
     cp -r "$skill_path" "$target_path"
 done
 
+# Build list of installed skill names
+installed_names=()
+for skill_path in "${skill_dirs[@]}"; do
+    installed_names+=("$(basename "$skill_path")")
+done
+
+# Delete old skills that are no longer in the source
+deleted_count=0
+for existing in "${existing_skills[@]}"; do
+    found=false
+    for installed in "${installed_names[@]}"; do
+        if [ "$existing" = "$installed" ]; then
+            found=true
+            break
+        fi
+    done
+    if [ "$found" = false ]; then
+        echo -e "${YELLOW}Deleting${NC} $existing (no longer in source)"
+        rm -rf "$TARGET_DIR/$existing"
+        ((deleted_count++)) || true
+    fi
+done
+
 echo
 echo -e "${GREEN}✓${NC} Successfully installed ${#skill_dirs[@]} skill(s)"
+if [ "$deleted_count" -gt 0 ]; then
+    echo -e "${YELLOW}✓${NC} Deleted $deleted_count old skill(s)"
+fi
 echo
 echo "Installed skills:"
 for skill_path in "${skill_dirs[@]}"; do
