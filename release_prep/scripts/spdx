@@ -32,9 +32,11 @@ def main():
         sys.exit(1)
 
     for dirpath, dirnames, filenames in os.walk(root):
-        # Skip target directories
+        # Skip target and .build directories
         if 'target' in dirnames:
             dirnames.remove('target')
+        if '.build' in dirnames:
+            dirnames.remove('.build')
         for filename in filenames:
             if filename.endswith('.rs'):
                 file_path = os.path.join(dirpath, filename)
