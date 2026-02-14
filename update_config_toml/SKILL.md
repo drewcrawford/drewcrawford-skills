@@ -1,12 +1,49 @@
 ---
-name: rust_rebuild_std
-description: Provides information about rebuilding rust standard library, use when encountering the rust-lld linker error: --shared-memory is disallowed by ... because it was not compiled with 'atomics' or 'bulk-memory' features
+name: update_config_toml
+description: Provides information about fixing common wasm build errors
 ---
 
-The fix is to add the following in .cargo/config.toml
+Try the .cargo/config.toml file below:
 
 ```toml
 [unstable]
 # Tell *Cargo* to rebuild these crates for non-host targets (needs nightly)
 build-std = ["std", "panic_abort"]
+
+[target.'cfg(target_arch="wasm32")']
+runner = "wasm-bindgen-test-runner"
+rustflags = [
+	"-C", "target-feature=+atomics",
+	# see https://github.com/rustwasm/wasm-bindgen/issues/4727
+	# and https://github.com/rust-lang/rust/pull/147225
+	"-Clink-arg=--shared-memory",
+	# 4GB
+	"-Clink-arg=--max-memory=4294967296",
+	"-Clink-arg=--import-memory",
+	"-Clink-arg=--export=__wasm_init_tls",
+	"-Clink-arg=--export=__tls_size",
+	"-Clink-arg=--export=__tls_align",
+	"-Clink-arg=--export=__tls_base",
+	# Workaround for wasm-bindgen duplicate function declarations with v0 mangling
+	# see https://github.com/rustwasm/wasm-bindgen/issues/4820
+	"-Csymbol-mangling-version=legacy",
+	"-Zunstable-options"
+]
+
+# Note: cfg() predicates don't work for rustdocflags, so we need a separate
+# target section with the exact triple for doctests to get shared memory support
+
+[target.wasm32-unknown-unknown]
+rustdocflags = [
+	"-C", "target-feature=+atomics",
+	"-Clink-arg=--shared-memory",
+	"-Clink-arg=--max-memory=4294967296",
+	"-Clink-arg=--import-memory",
+	"-Clink-arg=--export=__wasm_init_tls",
+	"-Clink-arg=--export=__tls_size",
+	"-Clink-arg=--export=__tls_align",
+	"-Clink-arg=--export=__tls_base",
+	"-Csymbol-mangling-version=legacy",
+	"-Zunstable-options"
+]
 ```
