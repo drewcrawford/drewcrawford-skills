@@ -7,13 +7,13 @@ CHECKED_OUT_TAG=""
 
 # Cleanup function to restore git state
 cleanup() {
-	# Pop stash if we stashed anything (do this first, even if checkout fails)
-	if [ "$NEEDS_POP" = true ]; then
-		git stash pop --quiet 2>/dev/null || true
-	fi
 	# Restore git state if we checked out a tag
 	if [ -n "$CURRENT_REF" ] && [ -n "$CHECKED_OUT_TAG" ]; then
 		git checkout "$CURRENT_REF" --quiet 2>/dev/null || true
+	fi
+	# Pop stash if we stashed anything
+	if [ "$NEEDS_POP" = true ]; then
+		git stash pop --quiet 2>/dev/null || true
 	fi
 }
 
@@ -189,4 +189,3 @@ rm -rf old_docs
 rm new_docs.json
 rm new_docs_filtered.json
 rm -rf new_docs
-

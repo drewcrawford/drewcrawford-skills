@@ -8,13 +8,13 @@ NEEDS_POP=false
 # Ensure cleanup on exit
 cleanup() {
     rm -f old.txt new.txt
-    # Pop stash if we stashed anything
-    if [ "$NEEDS_POP" = true ]; then
-        git stash pop --quiet 2>/dev/null || true
-    fi
     # Restore git state if we saved a ref
     if [ -n "$ORIGINAL_REF" ]; then
         git checkout "$ORIGINAL_REF" --quiet 2>/dev/null || true
+    fi
+    # Pop stash if we stashed anything
+    if [ "$NEEDS_POP" = true ]; then
+        git stash pop --quiet 2>/dev/null || true
     fi
 }
 trap cleanup EXIT
@@ -120,6 +120,7 @@ ORIGINAL_REF=""
 # Pop stash if we stashed anything
 if [ "$NEEDS_POP" = true ]; then
     git stash pop --quiet
+    NEEDS_POP=false
 fi
 
 # Generate new API
