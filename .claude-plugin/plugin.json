@@ -1,5 +1,5 @@
 {
-  "name": "crawford-skills",
+  "name": "drewcrawford-skills",
   "description": "Battle-tested Claude Code skills: agent metacognition (stuck detection, hard-bug investigation), Rust release engineering, CI monitoring for GitHub and Gitea, browser automation, and WASM toolchain expertise.",
   "version": "1.0.0",
   "author": { "name": "Drew Crawford", "email": "drew@drewcrawfordapps.com" },

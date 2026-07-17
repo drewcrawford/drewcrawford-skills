@@ -4,5 +4,5 @@
 
 First public release. 16 skills covering agent metacognition, Rust release
 engineering, CI monitoring, browser automation, and WASM tooling, packaged as
-the `crawford-skills` plugin with a standalone installer for Claude Code and
+the `drewcrawford-skills` plugin with a standalone installer for Claude Code and
 Codex.

@@ -11,7 +11,7 @@ As a plugin (Claude Code 2.x):
 
 ```
 /plugin marketplace add drewcrawford/skills
-/plugin install crawford-skills@crawford-skills
+/plugin install drewcrawford-skills@drewcrawford-skills
 ```
 
 Or the old way, which also installs for OpenAI Codex:
