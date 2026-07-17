@@ -50,9 +50,11 @@ the source tree, so re-running it after a `git pull` is the whole update story.
 * **github** / **gitea** — CI monitors for both forges: full Python API
   clients with change-detection polling, per-job log retrieval, and a 0/1/127
   exit-code contract so they compose into shell deploy gates.
-* **drew-deps** — topological release ordering for crates depending on my
-  ecosystem, via Tarjan's SCC over a hand-parsed Cargo.lock. Niche, but if
-  you're using my crates, it's exactly the tool you want.
+* **ecosystem-deps** — topological release ordering for any family of crates
+  a workspace depends on, via Tarjan's SCC over a hand-parsed Cargo.lock.
+  Point it at any crates.io author (`--author you`), an explicit list, or a
+  checked-in manifest; with no flags it analyzes my ~40-crate ecosystem,
+  which is what I use it for.
 
 **Rust / WASM specifics** — the accumulated scar tissue:
 
