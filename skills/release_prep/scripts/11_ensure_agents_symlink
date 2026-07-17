@@ -1,0 +1,34 @@
+#!/bin/bash
+# Step 11: Ensure CLAUDE.md is a symlink to AGENTS.md
+
+set -e
+
+# Check if AGENTS.md exists
+if [ ! -f "AGENTS.md" ]; then
+    echo "ERROR: AGENTS.md does not exist in the current directory"
+    exit 1
+fi
+
+# Check if CLAUDE.md exists and is a symlink to AGENTS.md
+if [ -L "CLAUDE.md" ]; then
+    # It's a symlink, check if it points to AGENTS.md
+    TARGET=$(readlink "CLAUDE.md")
+    if [ "$TARGET" = "AGENTS.md" ]; then
+        echo "CLAUDE.md is already a symlink to AGENTS.md"
+        echo "EDITS MADE: no"
+        exit 0
+    else
+        echo "CLAUDE.md is a symlink but points to $TARGET instead of AGENTS.md"
+        echo "Removing and recreating symlink..."
+        rm "CLAUDE.md"
+    fi
+elif [ -e "CLAUDE.md" ]; then
+    # CLAUDE.md exists but is not a symlink
+    echo "CLAUDE.md exists but is not a symlink. Removing it..."
+    rm "CLAUDE.md"
+fi
+
+# Create the symlink
+ln -s AGENTS.md CLAUDE.md
+echo "Created symlink: CLAUDE.md -> AGENTS.md"
+echo "EDITS MADE: yes"
