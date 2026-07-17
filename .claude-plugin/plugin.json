@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "author": { "name": "Drew Crawford", "email": "drew@drewcrawfordapps.com" },
   "homepage": "https://sealedabstract.com",
-  "repository": "https://github.com/drewcrawford/skills",
+  "repository": "https://github.com/drewcrawford/drewcrawford-skills",
   "license": "MIT",
   "keywords": ["rust", "wasm", "ci", "debugging", "release-engineering", "skills"],
   "skills": ["./skills"]

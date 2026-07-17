@@ -57,7 +57,7 @@ DEFAULT_CRATES = {
 }
 DEFAULT_LABEL = "drewcrawford"
 
-CRATES_IO_UA = "ecosystem-deps (github.com/drewcrawford/skills)"
+CRATES_IO_UA = "ecosystem-deps (github.com/drewcrawford/drewcrawford-skills)"
 
 
 def normalize_name(name):

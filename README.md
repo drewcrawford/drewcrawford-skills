@@ -10,14 +10,14 @@ here earns its place by getting invoked in real sessions.
 As a plugin (Claude Code 2.x):
 
 ```
-/plugin marketplace add drewcrawford/skills
+/plugin marketplace add drewcrawford/drewcrawford-skills
 /plugin install drewcrawford-skills@drewcrawford-skills
 ```
 
 Or the old way, which also installs for OpenAI Codex:
 
 ```bash
-git clone https://github.com/drewcrawford/skills && ./skills/install-skills.sh
+git clone https://github.com/drewcrawford/drewcrawford-skills && ./skills/install-skills.sh
 ```
 
 The installer is idempotent and garbage-collects skills you've deleted from
