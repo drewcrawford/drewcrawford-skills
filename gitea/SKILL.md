@@ -111,27 +111,27 @@ When the user asks about Gitea builds:
 
 **Check recent builds:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py myorg myrepo
 ```
 
 **Diagnose failure:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py myorg myrepo --run 215
 ```
 
 **Download logs for debugging:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+scripts/gitea_builds.py myorg myrepo --run 215 --download-logs
 ```
 
 **Rerun failed workflow:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+scripts/gitea_builds.py myorg myrepo --run 215 --rerun
 ```
 
 **Rerun specific failed job:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
+scripts/gitea_builds.py myorg myrepo --run 215 --rerun-job 1006
 ```
 
 **CI/CD automation:**
@@ -149,10 +149,10 @@ fi
 
 ## Configuration
 
-**Pre-configured for:**
-- Gitea URL: `http://gitea.mermaid-gecko.ts.net:3000`
-- Authentication: Token configured in script
-- Network: Requires Tailscale connection
+**Configured via environment variables:**
+- `GITEA_URL`: Base URL of your Gitea instance (e.g. `https://gitea.example.com`)
+- `GITEA_TOKEN`: Personal access token
+- Network: Requires access to your Gitea instance
 
 ## Requirements
 
@@ -160,4 +160,4 @@ fi
 pip install requests
 ```
 
-Script requires Python 3.6+ and connection to Tailscale network.
+Script requires Python 3.6+ and network access to your Gitea instance.

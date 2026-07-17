@@ -43,28 +43,28 @@ scripts/gitea_builds.py <owner> <repo> [options]
 
 ```bash
 # List builds (default: last 10 commits, default branch)
-scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py myorg myrepo
 
 # View specific run
-scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py myorg myrepo --run 215
 
 # Download logs for a run
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+scripts/gitea_builds.py myorg myrepo --run 215 --download-logs
 
 # Wait for run with custom timeout
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait --timeout 1800
+scripts/gitea_builds.py myorg myrepo --run 215 --wait --timeout 1800
 
 # Rerun failed workflow
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+scripts/gitea_builds.py myorg myrepo --run 215 --rerun
 
 # Rerun specific failed job
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
+scripts/gitea_builds.py myorg myrepo --run 215 --rerun-job 1006
 
 # Check specific branch with more commits
-scripts/gitea_builds.py Metropolis Metropolis --branch develop --commits 20
+scripts/gitea_builds.py myorg myrepo --branch develop --commits 20
 
 # Combined options
-scripts/gitea_builds.py Metropolis Metropolis --branch main --commits 50
+scripts/gitea_builds.py myorg myrepo --branch main --commits 50
 ```
 
 ---
@@ -232,14 +232,11 @@ POST /api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/jobs/{job_id}/rerun
 
 ### Gitea Connection
 
-The script is pre-configured for a specific Gitea instance. To modify:
+The script reads its configuration from environment variables:
 
-**File:** `scripts/gitea_builds.py`
-**Lines:** 389-391
-
-```python
-GITEA_URL = "http://gitea.mermaid-gecko.ts.net:3000"
-GITEA_TOKEN = "cb1fcb0b640a6822a430d7792d5978689ac8d2ab"
+```bash
+export GITEA_URL="https://gitea.example.com"
+export GITEA_TOKEN="YOUR_GITEA_TOKEN"
 ```
 
 **GITEA_URL:** Base URL of your Gitea instance
@@ -247,9 +244,7 @@ GITEA_TOKEN = "cb1fcb0b640a6822a430d7792d5978689ac8d2ab"
 
 ### Network Requirements
 
-- **Tailscale VPN:** Required for `gitea.mermaid-gecko.ts.net`
-- **Port:** 3000 (HTTP)
-- **Protocol:** HTTP (not HTTPS)
+- Network access to your Gitea instance (VPN if it is private)
 
 ### Token Permissions
 
@@ -323,9 +318,9 @@ Job ID   Status     Description                                        Duration
 1        ✓ success  / Release build (macos-latest .   ) (push)         Successful in 3m56s
 
 View or download logs:
-  Job view URL: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215/jobs/0
-  Navigate to: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215
-  Download logs: scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+  Job view URL: http://gitea.example.com:3000/myorg/myrepo/actions/runs/215/jobs/0
+  Navigate to: http://gitea.example.com:3000/myorg/myrepo/actions/runs/215
+  Download logs: scripts/gitea_builds.py myorg myrepo --run 215 --download-logs
 
 Downloading logs for run #215 (run ID: 1234) to logs/run_215/
 --------------------------------------------------------------------------------
@@ -390,7 +385,7 @@ logs/run_<run_number>/
 The script extracts run and job IDs from commit status `target_url` fields:
 
 ```
-/Metropolis/Metropolis/actions/runs/215/jobs/5
+/myorg/myrepo/actions/runs/215/jobs/5
                                     ^^^      ^
                                   run_id  job_id
 ```
@@ -446,19 +441,19 @@ repos = client.list_repos()
 
 **get_repo_info(owner, repo)**
 ```python
-info = client.get_repo_info("Metropolis", "Metropolis")
+info = client.get_repo_info("myorg", "myrepo")
 # Returns: Repository metadata dict
 ```
 
 **list_commits(owner, repo, limit=10, branch=None)**
 ```python
-commits = client.list_commits("Metropolis", "Metropolis", limit=20, branch="main")
+commits = client.list_commits("myorg", "myrepo", limit=20, branch="main")
 # Returns: List of commit dicts
 ```
 
 **get_commit_statuses(owner, repo, sha)**
 ```python
-statuses = client.get_commit_statuses("Metropolis", "Metropolis", "5a6119a...")
+statuses = client.get_commit_statuses("myorg", "myrepo", "5a6119a...")
 # Returns: List of commit status dicts
 ```
 
@@ -489,9 +484,9 @@ icon = format_status("success")  # Returns: "✓"
 
 **Connection Refused**
 ```
-Error: Failed to connect to gitea.mermaid-gecko.ts.net port 3000
+Error: Failed to connect to gitea.example.com port 3000
 ```
-**Solution:** Verify Tailscale connection
+**Solution:** Verify network/VPN connection to your Gitea instance
 
 **403 Forbidden**
 ```
@@ -571,8 +566,7 @@ pip install -r requirements.txt
 ### System Requirements
 
 - Unix-like OS (macOS, Linux)
-- Network access to Gitea instance
-- Tailscale VPN client (for mermaid-gecko.ts.net)
+- Network access to Gitea instance (VPN client if the instance is private)
 
 ---
 
@@ -580,24 +574,22 @@ pip install -r requirements.txt
 
 ### Token Storage
 
-⚠️ **Warning:** The token is currently hardcoded in the script.
+The token is read from the `GITEA_TOKEN` environment variable:
 
-**For production:**
-1. Store in environment variable:
-   ```python
-   GITEA_TOKEN = os.environ.get("GITEA_TOKEN")
-   ```
+```python
+GITEA_TOKEN = os.environ.get("GITEA_TOKEN")
+```
 
-2. Or use config file with restricted permissions:
-   ```bash
-   chmod 600 ~/.config/gitea/token
-   ```
+Avoid hardcoding tokens in scripts or committing them to version control. If you prefer a config file, restrict its permissions:
+
+```bash
+chmod 600 ~/.config/gitea/token
+```
 
 ### Network Security
 
-- Uses HTTP (not HTTPS) - acceptable for Tailscale network
+- Prefer HTTPS; plain HTTP is only acceptable on a trusted private network
 - Token transmitted in Authorization header
-- No SSL/TLS verification issues
 
 ### Allowed Tools
 
@@ -629,19 +621,12 @@ chmod +x scripts/gitea_builds.py
 pip install requests
 ```
 
-### Tailscale Connection
-
-```bash
-tailscale status
-# Should show: connected, logged in
-```
-
 ### Token Issues
 
 Test token manually:
 ```bash
 curl -H "Authorization: token YOUR_TOKEN" \
-  http://gitea.mermaid-gecko.ts.net:3000/api/v1/user
+  https://gitea.example.com/api/v1/user
 ```
 
 Should return user info, not 403 error.

@@ -5,14 +5,9 @@ set -e
 
 echo "Checking for missing documentation..."
 
-# Detect available features to use for documentation check
-# This ensures we check docs for all public items across all features
-FEATURES=""
-if cargo metadata --no-deps --format-version 1 2>/dev/null | grep -q "backend_wgpu"; then
-    FEATURES="--features=backend_wgpu"
-fi
-
-# Run cargo doc with -D missing_docs to treat missing docs as errors
-RUSTDOCFLAGS="-D missing_docs" cargo doc --no-deps $FEATURES 2>&1
+# Run cargo doc with -D missing_docs to treat missing docs as errors.
+# --all-features so feature-gated public items are covered; crates with
+# mutually exclusive features will need special handling if one appears.
+RUSTDOCFLAGS="-D missing_docs" cargo doc --no-deps --all-features 2>&1
 
 echo "✓ All public items are documented"

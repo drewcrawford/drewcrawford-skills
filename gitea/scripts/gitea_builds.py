@@ -602,9 +602,19 @@ def wait_for_run(owner: str, repo: str, run_id: int, base_url: str, timeout: int
 def main():
     global GITEA_TOKEN
 
-    # Configuration
-    GITEA_URL = "http://gitea.mermaid-gecko.ts.net:3000"
-    GITEA_TOKEN = "cb1fcb0b640a6822a430d7792d5978689ac8d2ab"
+    # Configuration - get from environment
+    GITEA_URL = os.environ.get("GITEA_URL")
+    GITEA_TOKEN = os.environ.get("GITEA_TOKEN")
+
+    if not GITEA_URL:
+        print("Error: GITEA_URL environment variable not set")
+        print("Please set it with: export GITEA_URL=https://gitea.example.com")
+        sys.exit(1)
+
+    if not GITEA_TOKEN:
+        print("Error: GITEA_TOKEN environment variable not set")
+        print("Please set it with: export GITEA_TOKEN=your_token_here")
+        sys.exit(1)
 
     # Parse command line arguments
     if len(sys.argv) < 3:

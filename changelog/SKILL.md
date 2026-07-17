@@ -1,7 +1,7 @@
 ---
 name: changelog
 description: Create and maintain CHANGELOG files with delightful Slack-style voice. Generate release notes from git history, update existing changelogs, and craft human-friendly update summaries. Use when asked to create changelogs, write release notes, document version history, or summarize recent changes with personality.
-allowed-tools: Bash(git tag --sort=-v:refname), Bash(~/.claude/skills/changelog/scripts/compare_api.sh), Bash(/Users/drew/.claude/skills/changelog/scripts/compare_api.sh), Bash(rm -f old.txt new.txt), Bash(git show:*), Bash(git rev-list:*), Bash(git rev-head:*)
+allowed-tools: Bash(git tag --sort=-v:refname), Bash(~/.claude/skills/changelog/scripts/compare_api.sh), Bash(rm -f old.txt new.txt), Bash(git show:*), Bash(git rev-list:*), Bash(git rev-head:*)
 ---
 
 # Changelog Craftsman 📝

@@ -6,16 +6,16 @@ This document provides concrete examples of using the Gitea Build Monitor skill.
 
 **Scenario:** User wants to see the latest build status for a repository.
 
-**User asks:** "Show me the recent builds for Metropolis/Metropolis"
+**User asks:** "Show me the recent builds for myorg/myrepo"
 
 **Command:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py myorg myrepo
 ```
 
 **Output:**
 ```
-Fetching build status for Metropolis/Metropolis on branch 'main' (checking last 10 commits)...
+Fetching build status for myorg/myrepo on branch 'main' (checking last 10 commits)...
 
 Run ID   SHA       Branch          Status     Jobs   Commit Message
 --------------------------------------------------------------------------------------------------------------
@@ -26,7 +26,7 @@ Run ID   SHA       Branch          Status     Jobs   Commit Message
 211      81fac6a   main            ✗ failure  1      Try using github-script?
 ```
 
-**Claude should respond:** "I can see the recent builds for Metropolis/Metropolis. The most recent run (215) failed with 6 jobs, where one job had failures. Runs 214 and 213 succeeded, but 212 and 211 failed as well. Would you like me to check the details of run 215 to see which job failed?"
+**Claude should respond:** "I can see the recent builds for myorg/myrepo. The most recent run (215) failed with 6 jobs, where one job had failures. Runs 214 and 213 succeeded, but 212 and 211 failed as well. Would you like me to check the details of run 215 to see which job failed?"
 
 ---
 
@@ -38,7 +38,7 @@ Run ID   SHA       Branch          Status     Jobs   Commit Message
 
 **Command:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py myorg myrepo --run 215
 ```
 
 **Output:**
@@ -56,8 +56,8 @@ Job ID   Status     Description                                        Duration
 5        ✗ failure  / Release build (windows-latest .  aarch64-pc-windows-msvc ) (push) Failing after 6m39s
 
 View logs for jobs:
-  Job view URL: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215/jobs/0
-  Or navigate to: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215
+  Job view URL: http://gitea.example.com:3000/myorg/myrepo/actions/runs/215/jobs/0
+  Or navigate to: http://gitea.example.com:3000/myorg/myrepo/actions/runs/215
 ```
 
 **Claude should respond:** "Run 215 has 6 jobs, and job 5 failed. It's the Windows ARM64 build (aarch64-pc-windows-msvc) that's failing after 6m39s. All other platforms built successfully:
@@ -68,7 +68,7 @@ View logs for jobs:
 - Windows/x64 (12m54s) ✓
 - Windows/ARM64 (6m39s) ✗
 
-You can view the logs at: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215"
+You can view the logs at: http://gitea.example.com:3000/myorg/myrepo/actions/runs/215"
 
 ---
 
@@ -80,7 +80,7 @@ You can view the logs at: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metr
 
 **Command:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+scripts/gitea_builds.py myorg myrepo --run 215 --download-logs
 ```
 
 **Output:**
@@ -98,9 +98,9 @@ Job ID   Status     Description                                        Duration
 5        ✗ failure  / Release build (windows-latest .  aarch64-pc-windows-msvc ) (push) Failing after 6m39s
 
 View or download logs:
-  Job view URL: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215/jobs/0
-  Navigate to: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215
-  Download logs: scripts/gitea_builds.py Metropolis Metropolis --run 215 --download-logs
+  Job view URL: http://gitea.example.com:3000/myorg/myrepo/actions/runs/215/jobs/0
+  Navigate to: http://gitea.example.com:3000/myorg/myrepo/actions/runs/215
+  Download logs: scripts/gitea_builds.py myorg myrepo --run 215 --download-logs
 
 Downloading logs for run #215 (run ID: 1234) to logs/run_215/
 --------------------------------------------------------------------------------
@@ -137,7 +137,7 @@ logs/run_215/
 
 **Command:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 216 --wait
+scripts/gitea_builds.py myorg myrepo --run 216 --wait
 ```
 
 **Output (during execution):**
@@ -177,7 +177,7 @@ Waiting for run #216 to complete (timeout: 3600s, polling every 10s)...
 
 **Command:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 217 --wait --timeout 600
+scripts/gitea_builds.py myorg myrepo --run 217 --wait --timeout 600
 ```
 
 **If build completes successfully:**
@@ -208,12 +208,12 @@ Exit code: 127
 
 **Command:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --branch develop
+scripts/gitea_builds.py myorg myrepo --branch develop
 ```
 
 **Output:**
 ```
-Fetching build status for Metropolis/Metropolis on branch 'develop' (checking last 10 commits)...
+Fetching build status for myorg/myrepo on branch 'develop' (checking last 10 commits)...
 
 Run ID   SHA       Branch          Status     Jobs   Commit Message
 --------------------------------------------------------------------------------------------------------------
@@ -240,8 +240,8 @@ Run ID   SHA       Branch          Status     Jobs   Commit Message
 set -e
 
 BUILD_RUN_ID=225
-OWNER="Metropolis"
-REPO="Metropolis"
+OWNER="myorg"
+REPO="myrepo"
 
 echo "Waiting for build $BUILD_RUN_ID to complete..."
 
@@ -272,11 +272,11 @@ fi
 
 **Scenario:** User wants to see build history for more commits.
 
-**User asks:** "Show me the last 20 builds for Metropolis/Metropolis"
+**User asks:** "Show me the last 20 builds for myorg/myrepo"
 
 **Command:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --commits 20
+scripts/gitea_builds.py myorg myrepo --commits 20
 ```
 
 This will check the last 20 commits for build information instead of the default 10.
@@ -291,7 +291,7 @@ This will check the last 20 commits for build information instead of the default
 
 **Command:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 230 --wait --timeout 3600
+scripts/gitea_builds.py myorg myrepo --run 230 --wait --timeout 3600
 ```
 
 The script will poll every 10 seconds and show status changes as jobs progress from pending → running → success/failure.
@@ -308,7 +308,7 @@ The script will poll every 10 seconds and show status changes as jobs progress f
 
 **Command:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+scripts/gitea_builds.py myorg myrepo --run 215 --rerun
 ```
 
 **Output:**
@@ -316,12 +316,12 @@ scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
 Rerunning workflow run #215 (run ID: 1234)...
 ✓ Successfully triggered rerun of workflow run #215
 
-View progress at: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215
+View progress at: http://gitea.example.com:3000/myorg/myrepo/actions/runs/215
 ```
 
 **Claude should respond:** "I've successfully triggered a rerun of workflow run #215. All 6 jobs will be executed again. You can monitor the progress at the URL above, or use the --wait flag to wait for completion:
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait
+scripts/gitea_builds.py myorg myrepo --run 215 --wait
 ```"
 
 ---
@@ -334,7 +334,7 @@ scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait
 
 **Command:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
+scripts/gitea_builds.py myorg myrepo --run 215 --rerun-job 1006
 ```
 
 **Output:**
@@ -342,7 +342,7 @@ scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
 Rerunning job 1006 from run #215 (run ID: 1234)...
 ✓ Successfully triggered rerun of job 1006
 
-View progress at: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/actions/runs/215
+View progress at: http://gitea.example.com:3000/myorg/myrepo/actions/runs/215
 ```
 
 **Claude should respond:** "I've triggered a rerun of just job 1006 (the Windows ARM64 build) from run 215. The other 5 jobs won't be rerun since they already succeeded. You can watch the progress at the provided URL."
@@ -358,7 +358,7 @@ View progress at: http://gitea.mermaid-gecko.ts.net:3000/Metropolis/Metropolis/a
 **Commands (sequential):**
 ```bash
 # First, trigger the rerun
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+scripts/gitea_builds.py myorg myrepo --run 215 --rerun
 
 # Then wait for it (note: this waits for the original run, not the new one)
 # The new run will have a new run number
@@ -373,7 +373,7 @@ Let me check the latest runs to find the new run number..."
 
 **Then execute:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py myorg myrepo
 ```
 
 ---
@@ -386,7 +386,7 @@ scripts/gitea_builds.py Metropolis Metropolis
 
 **Command:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py myorg myrepo
 ```
 
 **Claude should:** Look at the first line of output and respond simply: "No, the latest build (run 215) failed. Would you like me to check what went wrong?"
@@ -405,7 +405,7 @@ scripts/gitea_builds.py Metropolis Metropolis
 
 echo "Checking if build 240 passed..."
 
-if scripts/gitea_builds.py Metropolis Metropolis --run 240 --wait --timeout 900; then
+if scripts/gitea_builds.py myorg myrepo --run 240 --wait --timeout 900; then
     echo "Build passed! Running integration tests..."
     npm run test:integration
 else
@@ -429,8 +429,8 @@ fi
 
 set -e
 
-OWNER="Metropolis"
-REPO="Metropolis"
+OWNER="myorg"
+REPO="myrepo"
 
 echo "Checking latest build status..."
 
@@ -490,19 +490,14 @@ fi
 
 ### Run not found
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 999
+scripts/gitea_builds.py myorg myrepo --run 999
 ```
 Output: `Run #999 not found in last 10 commits`
 
 **Solution:** Increase commit search limit:
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 999 --commits 50
+scripts/gitea_builds.py myorg myrepo --run 999 --commits 50
 ```
 
 ### Connection issues
-If you see connection errors, verify Tailscale is running:
-```bash
-tailscale status
-```
-
-The Gitea instance requires Tailscale network access.
+If you see connection errors, verify you have network access to the Gitea instance (including any VPN it may require).

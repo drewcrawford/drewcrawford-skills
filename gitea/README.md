@@ -18,14 +18,14 @@ Install as a skill to enable natural language interaction with Gitea builds:
 
 ```bash
 # Copy to your Claude skills directory
-cp -r /Users/drew/Code/skills ~/.claude/skills/gitea-builds
+cp -r ~/Code/skills ~/.claude/skills/gitea-builds
 
 # Or create a symbolic link
-ln -s /Users/drew/Code/skills ~/.claude/skills/gitea-builds
+ln -s ~/Code/skills ~/.claude/skills/gitea-builds
 ```
 
 **After installation**, restart Claude Code. The skill activates automatically when you ask:
-- "Show me recent builds for Metropolis/Metropolis"
+- "Show me recent builds for myorg/myrepo"
 - "What's the status of run 215?"
 - "Download the logs for run 215"
 - "Wait for build 216 to complete"
@@ -41,13 +41,13 @@ Use directly from the command line:
 pip install -r requirements.txt
 
 # List recent builds
-scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py myorg myrepo
 
 # View specific run
-scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py myorg myrepo --run 215
 
 # Wait for completion
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --wait
+scripts/gitea_builds.py myorg myrepo --run 215 --wait
 ```
 
 ---
@@ -137,18 +137,16 @@ Claude automatically loads only the documentation it needs for your specific que
 
 ## Configuration
 
-The script is pre-configured for:
+The script is configured via environment variables:
 
-- **Gitea URL:** `http://gitea.mermaid-gecko.ts.net:3000`
-- **Authentication:** Token configured in script
-- **Network:** Requires Tailscale VPN connection
-
-To modify configuration, edit `scripts/gitea_builds.py` lines 389-391:
-
-```python
-GITEA_URL = "http://your-gitea-instance:3000"
-GITEA_TOKEN = "your_personal_access_token"
+```bash
+export GITEA_URL="https://gitea.example.com"
+export GITEA_TOKEN="your_personal_access_token"
 ```
+
+- **GITEA_URL:** Base URL of your Gitea instance
+- **GITEA_TOKEN:** Personal access token with `read:repository` scope
+- **Network:** Requires network access to your Gitea instance (VPN if it is private)
 
 ---
 
@@ -159,7 +157,7 @@ GITEA_TOKEN = "your_personal_access_token"
 
 **Claude uses:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py myorg myrepo
 ```
 
 ### 2. Diagnose Failure
@@ -167,7 +165,7 @@ scripts/gitea_builds.py Metropolis Metropolis
 
 **Claude uses:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py myorg myrepo --run 215
 ```
 
 ### 3. Monitor Build
@@ -175,7 +173,7 @@ scripts/gitea_builds.py Metropolis Metropolis --run 215
 
 **Claude uses:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 216 --wait
+scripts/gitea_builds.py myorg myrepo --run 216 --wait
 ```
 
 ### 4. Rerun Failed Build
@@ -183,7 +181,7 @@ scripts/gitea_builds.py Metropolis Metropolis --run 216 --wait
 
 **Claude uses:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
+scripts/gitea_builds.py myorg myrepo --run 215 --rerun
 ```
 
 ### 5. Rerun Specific Job
@@ -191,7 +189,7 @@ scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun
 
 **Claude uses:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
+scripts/gitea_builds.py myorg myrepo --run 215 --rerun-job 1006
 ```
 
 ### 6. Check Feature Branch
@@ -199,7 +197,7 @@ scripts/gitea_builds.py Metropolis Metropolis --run 215 --rerun-job 1006
 
 **Claude uses:**
 ```bash
-scripts/gitea_builds.py Metropolis Metropolis --branch develop
+scripts/gitea_builds.py myorg myrepo --branch develop
 ```
 
 ---
@@ -225,7 +223,7 @@ See [reference.md](reference.md) for complete API documentation.
 
 - **Python:** 3.6 or higher
 - **Dependencies:** `requests` library
-- **Network:** Tailscale VPN access to `gitea.mermaid-gecko.ts.net`
+- **Network:** Access to your Gitea instance (VPN if it is private)
 
 ### Installation
 
@@ -289,11 +287,8 @@ For detailed usage examples, see [examples.md](examples.md), including:
 ### Connection Issues
 
 ```bash
-# Check Tailscale is running
-tailscale status
-
-# Test connection
-ping gitea.mermaid-gecko.ts.net
+# Test connection (verify VPN if your instance is private)
+ping gitea.example.com
 ```
 
 ### Run Not Found
@@ -312,7 +307,7 @@ Ensure token has:
 Test token:
 ```bash
 curl -H "Authorization: token YOUR_TOKEN" \
-  http://gitea.mermaid-gecko.ts.net:3000/api/v1/user
+  http://gitea.example.com:3000/api/v1/user
 ```
 
 For more troubleshooting, see [reference.md](reference.md).
@@ -345,13 +340,13 @@ gitea-builds/
 
 ```bash
 # Test basic listing
-scripts/gitea_builds.py Metropolis Metropolis
+scripts/gitea_builds.py myorg myrepo
 
 # Test specific run
-scripts/gitea_builds.py Metropolis Metropolis --run 215
+scripts/gitea_builds.py myorg myrepo --run 215
 
 # Test wait mode with timeout
-scripts/gitea_builds.py Metropolis Metropolis --run 214 --wait --timeout 30
+scripts/gitea_builds.py myorg myrepo --run 214 --wait --timeout 30
 ```
 
 ---

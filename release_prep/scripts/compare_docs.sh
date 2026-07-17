@@ -91,8 +91,20 @@ fi
 
 echo "Comparing docs: $COMPARE_TAG vs $CURRENT_REF..."
 
-# Get crate name from Cargo.toml
-CRATE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name' | tr '-' '_')
+# Get the package name in the current directory (the one `cargo rustdoc` documents).
+# .packages[0] is wrong in a workspace: package order is unspecified.
+CWD_MANIFEST="$(pwd)/Cargo.toml"
+METADATA=$(cargo metadata --no-deps --format-version 1)
+CRATE_NAME=$(echo "$METADATA" \
+	| jq -r --arg m "$CWD_MANIFEST" '.packages[] | select(.manifest_path == $m) | .name' \
+	| tr '-' '_')
+if [ -z "$CRATE_NAME" ]; then
+	echo "Error: no package at $CWD_MANIFEST (virtual workspace?)." >&2
+	echo "Run this script from the package's directory (e.g. crates/mycrate)." >&2
+	exit 1
+fi
+# The doc output lands in the workspace target dir, which may be above cwd
+TARGET_DIR=$(echo "$METADATA" | jq -r '.target_directory')
 
 # Clean up old comparison files
 rm -f old_docs.json new_docs.json
@@ -103,7 +115,7 @@ if [ "$QUIET" = true ]; then
 else
 	cargo +nightly rustdoc -- -Z unstable-options --output-format json
 fi
-cp "target/doc/${CRATE_NAME}.json" new_docs.json
+cp "${TARGET_DIR}/doc/${CRATE_NAME}.json" new_docs.json
 
 # Stash any current changes
 STASH_RESULT=$(git stash push -m "doc-compare" 2>&1 || true)
@@ -122,7 +134,7 @@ if [ "$QUIET" = true ]; then
 else
 	cargo +nightly rustdoc -- -Z unstable-options --output-format json
 fi
-cp "target/doc/${CRATE_NAME}.json" old_docs.json
+cp "${TARGET_DIR}/doc/${CRATE_NAME}.json" old_docs.json
 
 # Return to original ref (branch name or commit)
 git checkout "$CURRENT_REF" --quiet

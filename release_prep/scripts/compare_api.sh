@@ -4,10 +4,10 @@ set -e
 # Store the original ref and stash state globally for cleanup
 ORIGINAL_REF=""
 NEEDS_POP=false
+SUCCESS=false
 
 # Ensure cleanup on exit
 cleanup() {
-    rm -f old.txt new.txt
     # Restore git state if we saved a ref
     if [ -n "$ORIGINAL_REF" ]; then
         git checkout "$ORIGINAL_REF" --quiet 2>/dev/null || true
@@ -15,6 +15,10 @@ cleanup() {
     # Pop stash if we stashed anything
     if [ "$NEEDS_POP" = true ]; then
         git stash pop --quiet 2>/dev/null || true
+    fi
+    # old.txt/new.txt are the documented outputs; only remove partial files on failure
+    if [ "$SUCCESS" != true ]; then
+        rm -f old.txt new.txt
     fi
 }
 trap cleanup EXIT
@@ -129,4 +133,5 @@ cargo public-api $OMIT_ARGS > new.txt
 # Show diff but don't fail script if there are differences
 diff old.txt new.txt || true
 
-# Cleanup happens automatically via trap
+SUCCESS=true
+# Cleanup happens automatically via trap; old.txt/new.txt are kept
