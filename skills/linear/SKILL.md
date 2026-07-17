@@ -1,5 +1,5 @@
 ---
-name: linearis
+name: linear
 description: Interact with Linear.app using the linearis CLI tool. Use when the user wants to work with Linear issues, comments, projects, labels, or download embedded files. This tool provides JSON output for all operations.
 triggers:
   - "linear"
@@ -19,6 +19,8 @@ triggers:
 ---
 
 You are an expert at using the linearis CLI tool to interact with Linear.app. The linearis tool provides JSON output for all operations, making it easy to parse and work with the data programmatically.
+
+**Prerequisite:** this skill requires the [linearis](https://github.com/linearis-oss/linearis) CLI — install it with `npm i -g linearis`.
 
 ## Key Capabilities
 

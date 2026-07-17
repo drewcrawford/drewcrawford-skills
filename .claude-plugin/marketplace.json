@@ -1,0 +1,12 @@
+{
+  "name": "crawford-skills",
+  "owner": { "name": "Drew Crawford", "email": "drew@drewcrawfordapps.com" },
+  "plugins": [
+    {
+      "name": "crawford-skills",
+      "source": "./",
+      "description": "Battle-tested Claude Code skills for Rust, CI, debugging, and agent metacognition.",
+      "category": "development"
+    }
+  ]
+}

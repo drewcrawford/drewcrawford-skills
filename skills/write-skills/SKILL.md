@@ -1,5 +1,5 @@
 ---
-name: skill-writer
+name: write-skills
 description: Create and write Claude Code skills. Use when the user asks to write a skill, create a new skill, design a skill for a specific task (like using bash scripts, web services, APIs), or needs help structuring skill files. Also use when discussing skill best practices, metadata format, or troubleshooting skill activation.
 ---
 

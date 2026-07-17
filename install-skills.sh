@@ -7,6 +7,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILLS_DIR="$SCRIPT_DIR/skills"
 TARGET_DIRS=("$HOME/.claude/skills" "$HOME/.codex/skills")
 
 # Colors for output
@@ -19,7 +20,7 @@ skill_dirs=()
 while IFS= read -r skill_file; do
     skill_dir="$(dirname "$skill_file")"
     skill_dirs+=("$skill_dir")
-done < <(find "$SCRIPT_DIR" -maxdepth 2 -name "SKILL.md" -type f)
+done < <(find "$SKILLS_DIR" -maxdepth 2 -name "SKILL.md" -type f)
 
 # Build list of installed skill names
 installed_names=()

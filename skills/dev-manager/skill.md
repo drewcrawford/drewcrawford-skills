@@ -1,5 +1,5 @@
 ---
-name: dev-manager-escalation
+name: dev-manager
 description: Monitor development work to identify situations requiring senior architect intervention. This skill evaluates coding decisions, architectural choices, and development progress to determine when escalation to staff-level engineers would prevent wasted effort or technical debt.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: GitHub Issues Browser
+name: github-issues
 description: Browse and search recent GitHub issues using the `gh` CLI. Use when investigating bugs that might be recent regressions, when searching by keywords fails to find relevant issues, or when you need to see what issues have been filed in the last N days. Especially useful when a bug "used to work" or appears related to recent upstream changes.
 ---
 
