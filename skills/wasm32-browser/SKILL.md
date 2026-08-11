@@ -1,6 +1,7 @@
 ---
 name: wasm32-browser
 description: Configure browser for wasm-bindgen-test-runner. Use when wasm32 tests need to run in a specific browser (Chrome, Safari) instead of the default Firefox, or when Firefox doesn't support required features like WebGPU.
+compatibility: Requires a Rust WASM test project and an installed browser driver such as chromedriver, geckodriver, or safaridriver.
 ---
 
 Ultimately what you need to do is set the right environment variable.

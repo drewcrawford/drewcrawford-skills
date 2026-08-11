@@ -1,89 +1,161 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
-# Install skills to ~/.claude/skills and ~/.codex/skills
-# This script copies all skill directories to the Claude and Codex skills
-# directories, replacing any existing versions.
+# Install this repository's Agent Skills once, then expose them to clients that
+# still use a client-specific discovery directory.
 
-set -e
+set -eu
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "${HOME:-}" ]; then
+    echo "Error: HOME is not set" >&2
+    exit 1
+fi
+
+SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 SKILLS_DIR="$SCRIPT_DIR/skills"
-TARGET_DIRS=("$HOME/.claude/skills" "$HOME/.codex/skills")
+AGENT_SKILLS_DIR=${AGENT_SKILLS_DIR:-"$HOME/.agents/skills"}
+CLAUDE_SKILLS_DIR=${CLAUDE_SKILLS_DIR:-"$HOME/.claude/skills"}
+MANIFEST="$AGENT_SKILLS_DIR/.drewcrawford-skills.manifest"
+NEXT_MANIFEST="$MANIFEST.tmp.$$"
 
-# Colors for output
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+if [ -t 1 ]; then
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    NC='\033[0m'
+else
+    GREEN=''
+    YELLOW=''
+    NC=''
+fi
 
-# Find all directories containing SKILL.md
-skill_dirs=()
-while IFS= read -r skill_file; do
-    skill_dir="$(dirname "$skill_file")"
-    skill_dirs+=("$skill_dir")
-done < <(find "$SKILLS_DIR" -maxdepth 2 -name "SKILL.md" -type f)
+cleanup() {
+    rm -f "$NEXT_MANIFEST"
+}
+trap cleanup EXIT HUP INT TERM
 
-# Build list of installed skill names
-installed_names=()
-for skill_path in "${skill_dirs[@]}"; do
-    installed_names+=("$(basename "$skill_path")")
+is_valid_skill_name() {
+    case "$1" in
+        ''|-*|*-|*--*|*[!a-z0-9-]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+path_exists() {
+    [ -e "$1" ] || [ -L "$1" ]
+}
+
+paths_overlap() {
+    case "$1/" in
+        "$2/"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+if [ "$AGENT_SKILLS_DIR" = "$CLAUDE_SKILLS_DIR" ]; then
+    echo "Error: AGENT_SKILLS_DIR and CLAUDE_SKILLS_DIR must be different" >&2
+    exit 1
+fi
+if paths_overlap "$AGENT_SKILLS_DIR" "$SKILLS_DIR" ||
+   paths_overlap "$SKILLS_DIR" "$AGENT_SKILLS_DIR" ||
+   paths_overlap "$CLAUDE_SKILLS_DIR" "$SKILLS_DIR" ||
+   paths_overlap "$SKILLS_DIR" "$CLAUDE_SKILLS_DIR"; then
+    echo "Error: install directories must not overlap the source skills directory" >&2
+    exit 1
+fi
+
+mkdir -p "$AGENT_SKILLS_DIR" "$CLAUDE_SKILLS_DIR"
+: > "$NEXT_MANIFEST"
+
+# Migrate the two pre-standard names previously shipped by this repository.
+# Match their declared names so similarly named, unrelated directories survive.
+for legacy_name in release_prep update_config_toml; do
+    legacy_path="$CLAUDE_SKILLS_DIR/$legacy_name"
+    if [ -L "$legacy_path" ]; then
+        printf '%bRemoving renamed Claude entry%b %s\n' "$YELLOW" "$NC" "$legacy_name"
+        rm "$legacy_path"
+    elif [ -f "$legacy_path/SKILL.md" ] && grep -Fqx "name: $legacy_name" "$legacy_path/SKILL.md"; then
+        printf '%bRemoving renamed Claude entry%b %s\n' "$YELLOW" "$NC" "$legacy_name"
+        rm -rf "$legacy_path"
+    fi
 done
 
-for TARGET_DIR in "${TARGET_DIRS[@]}"; do
-    echo "Installing skills to $TARGET_DIR"
-    echo
+skill_count=0
+for skill_path in "$SKILLS_DIR"/*; do
+    [ -f "$skill_path/SKILL.md" ] || continue
 
-    # Create target directory if it doesn't exist
-    mkdir -p "$TARGET_DIR"
-
-    # Get list of existing skills before installation
-    existing_skills=()
-    if [ -d "$TARGET_DIR" ]; then
-        while IFS= read -r -d '' dir; do
-            existing_skills+=("$(basename "$dir")")
-        done < <(find "$TARGET_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
+    skill_name=${skill_path##*/}
+    if ! is_valid_skill_name "$skill_name"; then
+        echo "Error: invalid Agent Skills directory name: $skill_name" >&2
+        exit 1
     fi
 
-    # Copy each skill directory
-    for skill_path in "${skill_dirs[@]}"; do
-        skill_name="$(basename "$skill_path")"
-        target_path="$TARGET_DIR/$skill_name"
+    target_path="$AGENT_SKILLS_DIR/$skill_name"
+    staging_path="$AGENT_SKILLS_DIR/.$skill_name.tmp.$$"
 
-        if [ -d "$target_path" ]; then
-            echo -e "${YELLOW}Replacing${NC} $skill_name"
-            rm -rf "$target_path"
-        else
-            echo -e "${GREEN}Installing${NC} $skill_name"
-        fi
-
-        cp -r "$skill_path" "$target_path"
-    done
-
-    # Delete old skills that are no longer in the source
-    deleted_count=0
-    for existing in "${existing_skills[@]}"; do
-        found=false
-        for installed in "${installed_names[@]}"; do
-            if [ "$existing" = "$installed" ]; then
-                found=true
-                break
-            fi
-        done
-        if [ "$found" = false ]; then
-            echo -e "${YELLOW}Deleting${NC} $existing (no longer in source)"
-            rm -rf "$TARGET_DIR/$existing"
-            ((deleted_count++)) || true
-        fi
-    done
-
-    echo
-    echo -e "${GREEN}✓${NC} Successfully installed ${#skill_dirs[@]} skill(s)"
-    if [ "$deleted_count" -gt 0 ]; then
-        echo -e "${YELLOW}✓${NC} Deleted $deleted_count old skill(s)"
+    printf '%s\n' "$skill_name" >> "$NEXT_MANIFEST"
+    if path_exists "$target_path"; then
+        printf '%bUpdating%b %s\n' "$YELLOW" "$NC" "$skill_name"
+    else
+        printf '%bInstalling%b %s\n' "$GREEN" "$NC" "$skill_name"
     fi
-    echo
+
+    rm -rf "$staging_path"
+    cp -R "$skill_path" "$staging_path"
+    rm -rf "$staging_path/.claude"
+    find "$staging_path" -type f -name .DS_Store -exec rm -f {} \;
+    rm -rf "$target_path"
+    mv "$staging_path" "$target_path"
+
+    claude_path="$CLAUDE_SKILLS_DIR/$skill_name"
+    if [ -L "$claude_path" ] && [ "$(readlink "$claude_path")" = "$target_path" ]; then
+        :
+    else
+        if path_exists "$claude_path"; then
+            printf '%bReplacing Claude entry%b %s\n' "$YELLOW" "$NC" "$skill_name"
+            rm -rf "$claude_path"
+        fi
+        ln -s "$target_path" "$claude_path"
+    fi
+
+    skill_count=$((skill_count + 1))
 done
 
-echo "Installed skills:"
-for skill_path in "${skill_dirs[@]}"; do
-    echo "  - $(basename "$skill_path")"
-done
+if [ "$skill_count" -eq 0 ]; then
+    echo "Error: no skill directories found in $SKILLS_DIR" >&2
+    exit 1
+fi
+
+# Remove only skills recorded in this installer's previous manifest. Never
+# garbage-collect arbitrary directories from a shared client skills folder.
+deleted_count=0
+if [ -f "$MANIFEST" ]; then
+    while IFS= read -r old_name; do
+        is_valid_skill_name "$old_name" || continue
+        if grep -Fqx "$old_name" "$NEXT_MANIFEST"; then
+            continue
+        fi
+
+        old_target="$AGENT_SKILLS_DIR/$old_name"
+        old_claude_path="$CLAUDE_SKILLS_DIR/$old_name"
+        if [ -L "$old_claude_path" ] && [ "$(readlink "$old_claude_path")" = "$old_target" ]; then
+            rm "$old_claude_path"
+        fi
+        if path_exists "$old_target"; then
+            printf '%bRemoving retired skill%b %s\n' "$YELLOW" "$NC" "$old_name"
+            rm -rf "$old_target"
+            deleted_count=$((deleted_count + 1))
+        fi
+    done < "$MANIFEST"
+fi
+
+mv "$NEXT_MANIFEST" "$MANIFEST"
+trap - EXIT HUP INT TERM
+
+printf '\n%bInstalled %s Agent Skill(s)%b in %s\n' "$GREEN" "$skill_count" "$NC" "$AGENT_SKILLS_DIR"
+printf 'Claude Code links: %s\n' "$CLAUDE_SKILLS_DIR"
+if [ "$deleted_count" -gt 0 ]; then
+    printf '%bRemoved %s retired skill(s)%b\n' "$YELLOW" "$deleted_count" "$NC"
+fi
+
+if [ -d "$HOME/.codex/skills" ]; then
+    printf '\nNote: ~/.codex/skills is a legacy location and was left untouched.\n'
+fi

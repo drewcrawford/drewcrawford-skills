@@ -1,7 +1,7 @@
 ---
 name: github
 description: Monitor and interact with GitHub Actions CI/CD builds. Use when the user asks about GitHub builds, workflow runs, CI/CD status, build failures, or wants to wait for builds to complete. Also use when they mention checking build status, listing jobs, or monitoring continuous integration pipelines on GitHub.
-allowed-tools: Bash(~/.claude/skills/github/scripts/github_builds:*),Bash(${CLAUDE_PLUGIN_ROOT}/skills/github/scripts/github_builds:*),Read(logs/**),Bash(git remote get-url origin), Bash(git remote get-url github), Bash(ls:*)
+compatibility: Requires Python 3, the requests package, network access to GitHub, and a GITHUB_TOKEN.
 ---
 
 # GitHub Actions Monitor
@@ -25,10 +25,10 @@ Use this skill when the user:
 
 ### List recent builds
 ```bash
-~/.claude/skills/github/scripts/github_builds <owner> <repo>
+scripts/github_builds <owner> <repo>
 ```
 
-NOTE use the relative path ~/.claude to avoid errors.
+Resolve `scripts/github_builds` relative to this skill's directory.
 
 ### View run details
 ```bash

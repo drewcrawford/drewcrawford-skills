@@ -1,6 +1,7 @@
 ---
 name: ecosystem-deps
 description: Analyze one crate ecosystem's dependencies inside a Rust workspace — any crates.io author's crates, an explicit list, or the built-in drewcrawford set. Shows the ecosystem's crates topologically sorted by rank (rank 0 = no ecosystem deps, rank N = depends on rank N-1) and detects dependency cycles. Use when you need release order for a family of crates, want to see which of an author's crates a project pulls in, or need to find circular dependencies.
+compatibility: Requires Python 3 and a Rust workspace with Cargo.lock; --author additionally requires network access to crates.io.
 ---
 
 # Ecosystem Dependencies Analyzer
@@ -19,9 +20,8 @@ Crates in dependency cycles are detected and marked with `[CYCLE]`.
 
 ## Usage
 
-Run from any Rust workspace with a `Cargo.lock` (script lives at
-`~/.claude/skills/ecosystem-deps/ecosystem_deps.py` for raw installs, or
-`${CLAUDE_PLUGIN_ROOT}/skills/ecosystem-deps/ecosystem_deps.py` as a plugin):
+Run from any Rust workspace with a `Cargo.lock`. Resolve
+`ecosystem_deps.py` relative to this skill's directory:
 
 ```bash
 # Default ecosystem: the drewcrawford crate set baked into the script

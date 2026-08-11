@@ -1,21 +1,7 @@
 ---
 name: linear
 description: Interact with Linear.app using the linearis CLI tool. Use when the user wants to work with Linear issues, comments, projects, labels, or download embedded files. This tool provides JSON output for all operations.
-triggers:
-  - "linear"
-  - "linearis"
-  - "linear issue"
-  - "linear ticket"
-  - "linear comment"
-  - "linear project"
-  - "linear label"
-  - "create issue in linear"
-  - "update linear issue"
-  - "search linear"
-  - "list linear issues"
-  - "linear attachments"
-  - "linear embeds"
-  - "download from linear"
+compatibility: Requires the linearis CLI, Node.js/npm, network access, and Linear credentials.
 ---
 
 You are an expert at using the linearis CLI tool to interact with Linear.app. The linearis tool provides JSON output for all operations, making it easy to parse and work with the data programmatically.

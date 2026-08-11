@@ -1,11 +1,11 @@
 ---
 name: write-skills
-description: Create and write Claude Code skills. Use when the user asks to write a skill, create a new skill, design a skill for a specific task (like using bash scripts, web services, APIs), or needs help structuring skill files. Also use when discussing skill best practices, metadata format, or troubleshooting skill activation.
+description: Create and write portable Agent Skills. Use when the user asks to write a skill, create a new skill, design a skill for a specific task such as scripts or APIs, structure SKILL.md files, improve skill metadata, or troubleshoot skill activation across compatible agents.
 ---
 
 # Skill Writer
 
-Expert guidance for creating Claude Code skills that extend functionality through modular, discoverable capabilities.
+Expert guidance for creating portable Agent Skills that extend compatible agents through modular, discoverable capabilities.
 
 ## Core Concepts
 
@@ -30,7 +30,6 @@ skill-name/
 ---
 name: lowercase-with-hyphens  # Max 64 chars, no spaces
 description: What it does and when to use it  # Max 1024 chars
-allowed-tools: Optional tool restrictions  # Claude Code only
 ---
 ```
 
@@ -52,12 +51,12 @@ Write descriptions that are **specific** and include:
 **Bad Example:**
 > "Helps with documents"
 
-### Tool Restrictions (Optional)
-Control which tools Claude can use:
-```yaml
-allowed-tools: Read, Grep, Glob  # Read-only operations
-allowed-tools: Read, Write, Edit  # File operations only
-```
+### Leave permissions to the client
+
+Omit the experimental `allowed-tools` field. Tool names and permission
+semantics differ between clients, and modern clients can classify each tool
+call using the full execution context. Describe the required operations and
+dependencies in the instructions and `compatibility` metadata instead.
 
 ## Content Guidelines
 
@@ -81,59 +80,50 @@ allowed-tools: Read, Write, Edit  # File operations only
 
 ## Skill Locations
 
-Skills can exist in three locations:
-- **Personal**: `~/.claude/skills/skill-name/`
-- **Project**: `.claude/skills/skill-name/`
-- **Plugin**: Bundled with installed plugins
+The Agent Skills specification defines the contents of a skill, not where it
+must be installed. The cross-client convention is:
 
-Priority: Project > Personal > Plugin (when names conflict)
+- **Personal**: `~/.agents/skills/skill-name/`
+- **Project**: `.agents/skills/skill-name/`
+
+Clients may also scan native locations such as `~/.claude/skills/` or bundle
+skills in plugins. Project skills normally override personal skills when names
+conflict, but exact precedence is client-specific.
 
 ## Installing Skills
 
 ### Installing Personal Skills
 
-Personal skills are available across all projects. To install a personal skill, copy the skill directory to `~/.claude/skills/`:
+Personal skills are available across all projects. Install portable personal
+skills in `~/.agents/skills/`:
 
 ```bash
-# Create personal skills directory if it doesn't exist
+mkdir -p ~/.agents/skills
+cp -R /path/to/skill-name ~/.agents/skills/
+```
+
+If a client does not scan the shared directory, link the canonical copy into
+its native directory. For Claude Code:
+
+```bash
 mkdir -p ~/.claude/skills
-
-# Copy the entire skill folder
-cp -r /path/to/skill-name ~/.claude/skills/
-```
-
-Example:
-```bash
-# Install the write-skills skill
-cp -r ~/Code/skills/write-skills ~/.claude/skills/
-```
-
-To update an existing skill, simply copy it again to overwrite:
-```bash
-# Update a skill by copying again
-cp -r /path/to/skill-name ~/.claude/skills/
+ln -s ~/.agents/skills/skill-name ~/.claude/skills/skill-name
 ```
 
 ### Installing Project Skills
 
 Project skills are specific to a single project:
 ```bash
-# Navigate to project root
-cd /path/to/project
-
-# Create project skills directory
-mkdir -p .claude/skills
-
-# Copy the entire skill folder
-cp -r /path/to/skill-name .claude/skills/
+mkdir -p .agents/skills
+cp -R /path/to/skill-name .agents/skills/
 ```
 
 ### Verifying Installation
 
 After installing, verify the skill is discoverable:
-1. Ask Claude: "What skills are available?"
+1. Ask the agent: "What skills are available?"
 2. Test activation with a relevant query
-3. Check for error messages in debug mode: `claude --debug`
+3. Use the client's skill listing or debug mode to check discovery errors
 
 ## Common Skill Patterns
 
@@ -142,7 +132,6 @@ After installing, verify the skill is discoverable:
 ---
 name: api-client
 description: Interact with XYZ API for data retrieval and submission. Use when user mentions XYZ service, API operations, or needs to fetch/post data.
-allowed-tools: WebFetch, Read, Write
 ---
 ```
 
@@ -170,8 +159,9 @@ description: Automate build processes, CI/CD pipelines, and deployment workflows
 3. Verify tool restrictions work correctly
 4. Validate script execution permissions
 
-### Debug Mode
-Run Claude Code with debug flag for detailed logs:
+### Claude Code Debug Mode
+
+For Claude Code specifically, use its debug flag for detailed logs:
 ```bash
 claude --debug
 ```

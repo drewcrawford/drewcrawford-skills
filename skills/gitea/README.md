@@ -1,10 +1,10 @@
 # Gitea Build Monitor
 
-A Python script and Claude Code skill to monitor Gitea CI/CD builds, view job details, and wait for builds to complete with proper exit codes for automation.
+A Python script and portable Agent Skill to monitor Gitea CI/CD builds, view job details, and wait for builds to complete with proper exit codes for automation.
 
 ## Quick Links
 
-- **[SKILL.md](SKILL.md)** - Quick reference for Claude Code skill
+- **[SKILL.md](SKILL.md)** - Instructions and activation metadata
 - **[examples.md](examples.md)** - Detailed usage examples
 - **[reference.md](reference.md)** - Complete API and technical documentation
 
@@ -12,25 +12,27 @@ A Python script and Claude Code skill to monitor Gitea CI/CD builds, view job de
 
 ## Two Ways to Use
 
-### 1. As a Claude Code Skill (Recommended)
+### 1. As an Agent Skill (Recommended)
 
 Install as a skill to enable natural language interaction with Gitea builds:
 
 ```bash
-# Copy to your Claude skills directory
-cp -r ~/Code/skills ~/.claude/skills/gitea-builds
+# Copy to the shared personal skills directory
+mkdir -p ~/.agents/skills
+cp -R ~/Code/skills/skills/gitea ~/.agents/skills/gitea
 
-# Or create a symbolic link
-ln -s ~/Code/skills ~/.claude/skills/gitea-builds
+# Claude Code can use a symlink to the canonical copy
+mkdir -p ~/.claude/skills
+ln -s ~/.agents/skills/gitea ~/.claude/skills/gitea
 ```
 
-**After installation**, restart Claude Code. The skill activates automatically when you ask:
+After installation, restart the client if it does not detect the new skill. It activates automatically when you ask:
 - "Show me recent builds for myorg/myrepo"
 - "What's the status of run 215?"
 - "Download the logs for run 215"
 - "Wait for build 216 to complete"
 
-No need to explicitly invoke the skill - Claude recognizes build-related questions and uses the skill automatically.
+No explicit invocation is required when the client supports model-driven skill activation.
 
 ### 2. As a Standalone Command-Line Tool
 
@@ -118,20 +120,21 @@ fi
 
 ## Documentation Structure
 
-This skill follows Claude Code best practices with progressive disclosure:
+This skill follows the Agent Skills progressive-disclosure conventions:
 
 ```
-gitea-builds/
+gitea/
 ├── SKILL.md              # Quick reference (loaded first by Claude)
 ├── examples.md           # Detailed usage examples (loaded when needed)
 ├── reference.md          # Complete API/technical docs (loaded for deep dives)
 ├── README.md             # This file (user documentation)
 ├── requirements.txt      # Python dependencies
 └── scripts/
-    └── gitea_builds.py   # Main script
+    ├── gitea_builds.py   # Main script
+    └── test_gitea_builds.py
 ```
 
-Claude automatically loads only the documentation it needs for your specific question, keeping context efficient.
+Compatible agents load only the documentation they need for a specific question, keeping context efficient.
 
 ---
 

@@ -1,5 +1,7 @@
 **/.claude
 **/.DS_Store
+**/__pycache__/
+*.py[cod]
 analysis*.txt
 
 # Local Gitea credentials

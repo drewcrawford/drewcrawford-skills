@@ -2,7 +2,7 @@
 name: rust-docs
 description: Build and search documentation for dependent Rust crates. Provides accurate API names, function 
  signatures, usage examples, and important information directly from crate documentation.  Use this before searching the web for information about an external crate, or searching on disk for its sourcecode.
-allowed-tools: 
+compatibility: Requires a Rust toolchain with cargo and rustdoc.
 ---
 
 # Dependent Crate Documentation Manual

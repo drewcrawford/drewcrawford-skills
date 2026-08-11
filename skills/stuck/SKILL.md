@@ -1,6 +1,13 @@
 ---
 name: stuck
-description: Call when logs don’t fire, user repros fail but yours pass, you’re missing a dependency, or you’re repeating reruns with no new hypothesis. Prefer other skills first when they fit: `debug-wasm-tests` (wasm harness hangs), `rust-crate-docs` (API confusion), `wasm-time-best-practices` (wasm timing/Firefox). Escalation/architecture concerns → `dev-manager-escalation`. If in doubt or after the first failed fix with no new direction, escalate.
+description: >-
+  Call when logs don’t fire, user repros fail but yours pass, you’re missing a
+  dependency, or you’re repeating reruns with no new hypothesis. Prefer other
+  skills first when they fit: debug-wasm-tests (wasm harness hangs), rust-docs
+  (API confusion), or wasm-time-best-practices (wasm timing/Firefox). Use
+  dev-manager for escalation or architecture concerns. If in doubt or after
+  the first failed fix with no new direction, escalate.
+compatibility: Core guidance is portable; transcript export helpers require Claude Code session logs, Bash, Python 3, and jq.
 ---
 
 # Stuck Detection and Escalation

@@ -22,32 +22,19 @@
 
 ### Optional Fields
 
-#### allowed-tools
-- **Type**: string (comma-separated list)
-- **Claude Code Only**: Not supported in browser version
-- **Valid Tools**:
-  - `Read` - Read files
-  - `Write` - Create/overwrite files
-  - `Edit` - Modify files
-  - `Glob` - Search file patterns
-  - `Grep` - Search file contents
-  - `Bash` - Execute commands
-  - `WebFetch` - Fetch web content
-  - `WebSearch` - Search the web
-  - `Task` - Launch subagents
-  - `TodoWrite` - Manage tasks
-  - `NotebookEdit` - Edit Jupyter notebooks
-  - `BashOutput` - Read background process output
-  - `KillShell` - Terminate processes
-  - `AskUserQuestion` - Query user for input
-  - `Skill` - Invoke other skills
-  - `SlashCommand` - Execute slash commands
+- `license`: Short license name or a reference to a bundled license file
+- `compatibility`: Environment requirements such as executables, network access, or supported products
+- `metadata`: String key-value data for client or publisher use
+
+The specification also defines an experimental `allowed-tools` field. Omit it
+in portable skills: permission syntax is client-specific, and the client is in
+a better position to assess each concrete tool call.
 
 ## File System Structure
 
-### Directory Layout
+### Portable Directory Layout
 ```
-.claude/skills/           # Project skills (version controlled)
+.agents/skills/           # Project skills (version controlled)
 ├── skill-one/
 │   ├── SKILL.md
 │   ├── reference.md
@@ -55,7 +42,7 @@
 └── skill-two/
     └── SKILL.md
 
-~/.claude/skills/         # Personal skills (user-specific)
+~/.agents/skills/         # Personal skills (user-specific)
 ├── personal-skill/
 │   └── SKILL.md
 └── another-skill/
@@ -70,25 +57,25 @@
 **Direct Copy Method:**
 ```bash
 # Create skill directory
-mkdir -p ~/.claude/skills/my-skill
+mkdir -p ~/.agents/skills/my-skill
 
 # Copy all skill files
-cp -r /source/path/my-skill/* ~/.claude/skills/my-skill/
+cp -R /source/path/my-skill/. ~/.agents/skills/my-skill/
 
 # Set permissions if needed
-chmod +x ~/.claude/skills/my-skill/scripts/*.sh
+chmod +x ~/.agents/skills/my-skill/scripts/*.sh
 ```
 
 **Symbolic Link Method (Recommended):**
 ```bash
 # Link from development directory
-ln -s ~/Code/skills/my-skill ~/.claude/skills/my-skill
+ln -s ~/Code/skills/my-skill ~/.agents/skills/my-skill
 
 # Example for this skill-writer skill
-ln -s ~/Code/skills/write-skills ~/.claude/skills/write-skills
+ln -s ~/Code/skills/write-skills ~/.agents/skills/write-skills
 
 # Verify symlink
-readlink ~/.claude/skills/my-skill
+readlink ~/.agents/skills/my-skill
 ```
 
 **Benefits of Symlinks:**
@@ -101,11 +88,11 @@ readlink ~/.claude/skills/my-skill
 
 ```bash
 # From project root
-mkdir -p .claude/skills/project-skill
-cp -r /source/skill/* .claude/skills/project-skill/
+mkdir -p .agents/skills/project-skill
+cp -R /source/skill/. .agents/skills/project-skill/
 
 # Or use symlink for development
-ln -s ../../shared-skills/my-skill .claude/skills/my-skill
+ln -s ../../shared-skills/my-skill .agents/skills/my-skill
 ```
 
 #### Managing Multiple Skills
@@ -113,15 +100,15 @@ ln -s ../../shared-skills/my-skill .claude/skills/my-skill
 ```bash
 # Install multiple skills at once
 for skill in skill1 skill2 skill3; do
-    ln -s ~/Code/skills/$skill ~/.claude/skills/$skill
+    ln -s ~/Code/skills/$skill ~/.agents/skills/$skill
 done
 
 # List installed skills
-ls -la ~/.claude/skills/
+ls -la ~/.agents/skills/
 
 # Remove a skill
-rm ~/.claude/skills/skill-name  # If symlink
-rm -rf ~/.claude/skills/skill-name  # If directory
+rm ~/.agents/skills/skill-name  # If symlink
+rm -rf ~/.agents/skills/skill-name  # If directory
 ```
 
 ### File Loading Order
@@ -132,7 +119,7 @@ rm -rf ~/.claude/skills/skill-name  # If directory
 ## Activation Logic
 
 ### Discovery Process
-1. Claude scans all skill locations
+1. The client scans all configured skill locations
 2. Reads name and description from frontmatter
 3. Builds activation index
 
@@ -143,10 +130,8 @@ rm -rf ~/.claude/skills/skill-name  # If directory
 4. SKILL.md content loaded into context
 
 ### Priority Resolution
-When multiple skills have same name:
-1. Project skills (`.claude/skills/`)
-2. Personal skills (`~/.claude/skills/`)
-3. Plugin skills (bundled with plugins)
+When multiple skills have the same name, project skills conventionally take
+precedence over personal skills. Native and plugin precedence varies by client.
 
 ## Progressive Disclosure Pattern
 
@@ -216,25 +201,18 @@ name: test
 
 ## Security Considerations
 
-### Tool Restrictions
-Use `allowed-tools` to enforce security boundaries:
+### Client-owned permissions
 
-```yaml
-# Read-only skill
-allowed-tools: Read, Grep, Glob
-
-# No file system access
-allowed-tools: WebFetch, WebSearch
-
-# No external access
-allowed-tools: Read, Write, Edit
-```
+Do not encode pre-approved tools in a portable skill. State the workflow and
+its environmental requirements, then let the client apply its permission
+mode, risk classifier, organizational policy, and user confirmations to each
+tool call.
 
 ### Script Security
 - Never auto-execute scripts
-- Require explicit user confirmation
+- Respect the client's permission and confirmation system
 - Validate inputs before processing
-- Use absolute paths for file operations
+- Resolve bundled files relative to the skill root
 
 ## Advanced Patterns
 

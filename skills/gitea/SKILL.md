@@ -1,7 +1,7 @@
 ---
 name: gitea
 description: Monitor and interact with Gitea CI/CD builds. Use when the user asks about Gitea builds, workflow runs, CI/CD status, build failures, or wants to wait for builds to complete. Also use when they mention checking build status, listing jobs, or monitoring continuous integration pipelines on Gitea.
-allowed-tools: Bash(~/.claude/skills/gitea/scripts/gitea_builds.py:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/gitea/scripts/gitea_builds.py:*)
+compatibility: Requires Python 3, the requests package, network access to a Gitea instance, and a GITEA_TOKEN.
 ---
    
 # Gitea Build Monitor
@@ -20,13 +20,10 @@ Use this skill when the user:
 - Wants to rerun a failed workflow or specific job
 - Asks about build logs or failures
 
-# Launch note:
+# Launch note
 
-When launching scripts in this skill, use the synax
-
-```bash
-~/.claude/skills/gitea/scripts/my_script
-```
+Resolve all `scripts/...` paths relative to this skill's directory before
+running them.
 
 
 ## Quick Start

@@ -1,6 +1,7 @@
 ---
-name: update_config_toml
-description: Provides information about fixing common wasm build errors
+name: update-config-toml
+description: Fix common Rust WASM build errors by updating .cargo/config.toml with the required build-std and linker flags. Use when wasm32 builds fail around atomics, shared memory, TLS, or missing runtime symbols.
+compatibility: Requires a Rust nightly toolchain and a project targeting wasm32-unknown-unknown.
 ---
 
 Try the .cargo/config.toml file below:

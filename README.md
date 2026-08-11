@@ -1,9 +1,12 @@
-# skills
+# Agent Skills
 
-Claude Code skills I actually use, extracted from a year of running agents
+Agent Skills I actually use, extracted from a year of running agents
 against a ~40-crate Rust ecosystem, cross-platform GUI work, and the general
 business of shipping software. No demos, no aspirational stubs — every skill
 here earns its place by getting invoked in real sessions.
+
+Each directory under `skills/` follows the open
+[Agent Skills specification](https://agentskills.io/specification).
 
 ## Install
 
@@ -14,14 +17,20 @@ As a plugin (Claude Code 2.x):
 /plugin install drewcrawford-skills@drewcrawford-skills
 ```
 
-Or the old way, which also installs for OpenAI Codex:
+For local use with any client that scans the cross-client Agent Skills
+directory, clone the repository and run the installer:
 
 ```bash
-git clone https://github.com/drewcrawford/drewcrawford-skills && ./skills/install-skills.sh
+git clone https://github.com/drewcrawford/drewcrawford-skills
+./drewcrawford-skills/install-skills.sh
 ```
 
-The installer is idempotent and garbage-collects skills you've deleted from
-the source tree, so re-running it after a `git pull` is the whole update story.
+The installer copies each skill once to `~/.agents/skills/`, the shared
+cross-client location used by Codex and other compatible clients. It creates
+symlinks in `~/.claude/skills/` for Claude Code. The installer is idempotent
+and keeps an ownership manifest, so it removes retired skills from this
+repository without touching skills installed by anything else. Re-run it
+after `git pull` to update.
 
 ## What's in the box
 
@@ -42,7 +51,7 @@ the source tree, so re-running it after a `git pull` is the whole update story.
 
 **Release engineering:**
 
-* **release_prep** — a 25-step Rust release checklist (semver, MSRV, SPDX,
+* **release-prep** — a 25-step Rust release checklist (semver, MSRV, SPDX,
   API diffing against the last tag, doc coverage) that drives one subagent per
   step and composes the CI and changelog skills below.
 * **changelog** — generates release notes from git history with a five-level
@@ -60,7 +69,7 @@ the source tree, so re-running it after a `git pull` is the whole update story.
 
 * **rust-docs** — build and search docs for dependency crates locally, before
   guessing APIs or scraping the web.
-* **wasm-time-best-practices**, **wasm32-browser**, **update_config_toml** —
+* **wasm-time-best-practices**, **wasm32-browser**, **update-config-toml** —
   time handling on wasm32, browser selection for wasm-bindgen-test-runner,
   and the .cargo/config.toml flags that fix known upstream compiler issues
   (cited to the issues in question).
@@ -83,10 +92,12 @@ the source tree, so re-running it after a `git pull` is the whole update story.
 
 Every skill is a directory with a `SKILL.md` — YAML frontmatter for
 activation, lean instructions, and depth (reference.md, examples.md, scripts)
-linked on demand rather than jammed into the context window. Tool-backed
-skills declare `allowed-tools` so the agent gets exactly the commands it
-needs and nothing else. There's a longer argument about progressive
-disclosure in `write-skills/`.
+linked on demand rather than jammed into the context window. This repository
+intentionally omits the experimental `allowed-tools` field and leaves tool
+risk classification, permissions, and approval decisions to the client.
+There's a longer argument about progressive disclosure in `write-skills/`.
+
+Pull requests validate every skill with the Agent Skills reference validator.
 
 ## License
 
