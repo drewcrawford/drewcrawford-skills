@@ -11,10 +11,15 @@ import sys
 import re
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 from collections import defaultdict
+
+
+SUCCESS_CONCLUSIONS = {'success', 'neutral', 'skipped'}
+WAITING_STATUSES = {'pending', 'queued', 'waiting'}
+DEFAULT_RUNNER_TIMEOUT = 300
 
 
 def load_dotfile(path: Path) -> Dict[str, str]:
@@ -98,6 +103,83 @@ def extract_config_path(args: List[str]) -> Tuple[Optional[str], List[str]]:
             i += 1
 
     return config_path, remaining
+
+
+def parse_cli_args(args: List[str]) -> Dict[str, object]:
+    """Parse positional repository names and command options.
+
+    ``args`` excludes the executable name and any ``--config`` option already
+    removed by :func:`extract_config_path`.
+    """
+    if len(args) < 2:
+        raise ValueError('owner and repo are required')
+
+    parsed = {
+        'owner': args[0],
+        'repo': args[1],
+        'run_id': None,
+        'commit_limit': 10,
+        'branch': None,
+        'wait': False,
+        'download_logs': False,
+        'rerun': False,
+        'rerun_job_id': None,
+        'timeout': 3600,
+        'runner_timeout': DEFAULT_RUNNER_TIMEOUT,
+    }
+    value_options = {
+        '--run': ('run_id', int),
+        '--commits': ('commit_limit', int),
+        '--branch': ('branch', str),
+        '--rerun-job': ('rerun_job_id', int),
+        '--timeout': ('timeout', int),
+        '--runner-timeout': ('runner_timeout', int),
+    }
+    flag_options = {
+        '--wait': 'wait',
+        '--download-logs': 'download_logs',
+        '--rerun': 'rerun',
+    }
+
+    i = 2
+    while i < len(args):
+        option = args[i]
+        if option in value_options:
+            if i + 1 >= len(args):
+                raise ValueError(f'{option} requires a value')
+            key, converter = value_options[option]
+            try:
+                parsed[key] = converter(args[i + 1])
+            except ValueError:
+                raise ValueError(f'{option} requires an integer')
+            i += 2
+        elif option in flag_options:
+            parsed[flag_options[option]] = True
+            i += 1
+        else:
+            raise ValueError(f'unknown argument: {option}')
+
+    for key, option in (
+        ('run_id', '--run'),
+        ('commit_limit', '--commits'),
+        ('timeout', '--timeout'),
+        ('runner_timeout', '--runner-timeout'),
+    ):
+        value = parsed[key]
+        if value is not None and value < 0:
+            raise ValueError(f'{option} must not be negative')
+
+    run_id = parsed['run_id']
+    for enabled, option in (
+        (parsed['wait'], '--wait'),
+        (parsed['download_logs'], '--download-logs'),
+        (parsed['rerun'], '--rerun'),
+        (parsed['rerun_job_id'] is not None, '--rerun-job'),
+    ):
+        if enabled and run_id is None:
+            raise ValueError(f'{option} requires --run <run_id>')
+
+    return parsed
 
 
 class GiteaClient:
@@ -211,6 +293,13 @@ class GiteaClient:
         data = response.json()
         return data.get('workflow_runs', [])
 
+    def get_actions_run(self, owner: str, repo: str, run_id: int) -> dict:
+        """Get a workflow run by its database ID."""
+        url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/actions/runs/{run_id}"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        return response.json()
+
     def get_run_jobs(self, owner: str, repo: str, run_id: int) -> List[dict]:
         """
         Get jobs for a specific workflow run.
@@ -304,7 +393,10 @@ def format_status(status: str) -> str:
         'success': '✓',
         'failure': '✗',
         'pending': '○',
+        'queued': '○',
+        'waiting': '○',
         'running': '●',
+        'in_progress': '●',
         'cancelled': '⊗',
         'skipped': '−',
         'error': '✗'
@@ -319,6 +411,33 @@ def format_datetime(dt_str: str) -> str:
         return dt.strftime('%Y-%m-%d %H:%M:%S')
     except:
         return dt_str
+
+
+def parse_datetime(dt_str: str) -> Optional[datetime]:
+    """Parse an API timestamp, treating Gitea's Unix epoch sentinel as absent."""
+    if not dt_str or dt_str.startswith('1970-01-01'):
+        return None
+    try:
+        return datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+    except (TypeError, ValueError):
+        return None
+
+
+def runner_blocked_jobs(jobs: List[dict], runner_timeout: int,
+                        now: Optional[datetime] = None) -> List[Tuple[dict, int]]:
+    """Return queued jobs no runner has accepted within the configured grace."""
+    now = now or datetime.now(timezone.utc)
+    blocked = []
+    for job in jobs:
+        if job.get('status') not in WAITING_STATUSES or job.get('runner_id'):
+            continue
+        created_at = parse_datetime(job.get('created_at', ''))
+        if created_at is None:
+            continue
+        age = max(0, int((now - created_at).total_seconds()))
+        if age >= runner_timeout:
+            blocked.append((job, age))
+    return blocked
 
 
 def group_statuses_by_run(statuses: List[dict]) -> Dict[int, List[dict]]:
@@ -353,7 +472,7 @@ def group_statuses_by_run(statuses: List[dict]) -> Dict[int, List[dict]]:
     return runs
 
 
-def download_run_logs(client: GiteaClient, owner: str, repo: str, run_number: int,
+def download_run_logs(client: GiteaClient, owner: str, repo: str, run_id: int,
                       output_dir: str = "logs") -> int:
     """
     Download logs for all jobs in a run.
@@ -362,36 +481,24 @@ def download_run_logs(client: GiteaClient, owner: str, repo: str, run_number: in
         client: GiteaClient instance
         owner: Repository owner
         repo: Repository name
-        run_number: Run number (sequential number shown in UI, not database ID)
+        run_id: Workflow run database ID used in the Actions URL
         output_dir: Base directory for logs (default: "logs")
 
     Returns:
         Number of logs successfully downloaded
     """
-    run_dir = os.path.join(output_dir, f"run_{run_number}")
+    run_dir = os.path.join(output_dir, f"run_{run_id}")
     os.makedirs(run_dir, exist_ok=True)
-
-    # Get all runs and find the one with matching run_number
-    runs = client.get_actions_runs(owner, repo)
-    matching_runs = [run for run in runs if run.get('run_number') == run_number]
-
-    if not matching_runs:
-        print(f"\nNo run found with run number #{run_number}")
-        return 0
-
-    # Use the first matching run (there should only be one)
-    run = matching_runs[0]
-    run_id = run['id']
 
     # Get jobs for this run
     jobs = client.get_run_jobs(owner, repo, run_id)
 
     if not jobs:
-        print(f"\nNo jobs found for run #{run_number} (run ID: {run_id})")
+        print(f"\nNo jobs found for run ID {run_id}")
         return 0
 
     success_count = 0
-    print(f"\nDownloading logs for run #{run_number} (run ID: {run_id}) to {run_dir}/")
+    print(f"\nDownloading logs for run ID {run_id} to {run_dir}/")
     print("-" * 80)
 
     for job in sorted(jobs, key=lambda j: j['id']):
@@ -422,9 +529,9 @@ def download_run_logs(client: GiteaClient, owner: str, repo: str, run_number: in
     return success_count
 
 
-def print_builds_summary(owner: str, repo: str, commits_data: List[dict], base_url: str, branch: str):
+def print_builds_summary(client: GiteaClient, owner: str, repo: str,
+                         commits_data: List[dict], branch: str):
     """Print summary of builds across commits."""
-    all_runs = {}
     commit_map = {}
 
     for commit in commits_data:
@@ -436,133 +543,98 @@ def print_builds_summary(owner: str, repo: str, commits_data: List[dict], base_u
             'created': commit['created']
         }
 
-    print(f"\n{'Run ID':<8} {'SHA':<9} {'Branch':<15} {'Status':<10} {'Jobs':<6} {'Commit Message':<40}")
-    print("-" * 110)
+    runs = [
+        run for run in client.get_actions_runs(owner, repo)
+        if run.get('head_sha') in commit_map
+        and run.get('head_branch') in (None, branch)
+    ]
 
-    # Collect all runs from all commits
-    for commit in commits_data:
-        sha = commit['sha']
-        client = GiteaClient(base_url, GITEA_TOKEN)
-        statuses = client.get_commit_statuses(owner, repo, sha)
+    print(
+        f"\n{'Run ID':<8} {'#':<5} {'SHA':<9} {'Branch':<15} "
+        f"{'Status':<12} {'Jobs':<6} {'Commit Message':<40}"
+    )
+    print("-" * 118)
 
-        runs = group_statuses_by_run(statuses)
+    for run in sorted(runs, key=lambda item: item['id'], reverse=True):
+        run_id = run['id']
+        jobs = client.get_run_jobs(owner, repo, run_id)
+        commit_info = commit_map[run['head_sha']]
+        status = run.get('conclusion') or run.get('status', 'unknown')
+        run_number = run.get('run_number', '')
+        print(
+            f"{run_id:<8} {run_number:<5} {commit_info['sha_short']:<9} {branch:<15} "
+            f"{format_status(status)} {status:<10} {len(jobs):<6} {commit_info['message']:<40}"
+        )
 
-        for run_id, jobs in runs.items():
-            if run_id not in all_runs:
-                all_runs[run_id] = {
-                    'sha': sha,
-                    'jobs': jobs,
-                    'commit_info': commit_map[sha]
-                }
-
-    # Sort by run ID descending (most recent first)
-    for run_id in sorted(all_runs.keys(), reverse=True):
-        run_data = all_runs[run_id]
-        jobs = run_data['jobs']
-        commit_info = run_data['commit_info']
-
-        # Determine overall status
-        statuses = [j['status'] for j in jobs]
-        if 'failure' in statuses or 'error' in statuses:
-            overall_status = 'failure'
-        elif 'pending' in statuses or 'running' in statuses:
-            overall_status = 'running'
-        elif all(s == 'success' for s in statuses):
-            overall_status = 'success'
-        else:
-            overall_status = 'mixed'
-
-        status_icon = format_status(overall_status)
-        job_count = len(jobs)
-
-        print(f"{run_id:<8} {commit_info['sha_short']:<9} {branch:<15} {status_icon} {overall_status:<8} {job_count:<6} {commit_info['message']:<40}")
-
-    if all_runs:
-        print(f"\nTotal runs found: {len(all_runs)}")
+    if runs:
+        print(f"\nTotal runs found: {len(runs)}")
         print(f"\nTo see details for a specific run:")
         print(f"  python {sys.argv[0]} {owner} {repo} --run <run_id>")
     else:
         print("No build runs found.")
 
 
-def print_run_details(owner: str, repo: str, run_id: int, commits_data: List[dict], base_url: str):
+def print_run_details(client: GiteaClient, owner: str, repo: str, run_id: int, base_url: str):
     """Print detailed information about a specific run."""
-    client = GiteaClient(base_url, GITEA_TOKEN)
+    run = client.get_actions_run(owner, repo, run_id)
+    jobs = client.get_run_jobs(owner, repo, run_id)
+    run_number = run.get('run_number')
+    run_label = f"Run ID {run_id}"
+    if run_number is not None:
+        run_label += f" (workflow run #{run_number})"
 
-    # Find the commit with this run
-    found = False
-    for commit in commits_data:
-        sha = commit['sha']
-        statuses = client.get_commit_statuses(owner, repo, sha)
+    print(f"\n{run_label} - Commit {run.get('head_sha', '')[:7]}")
+    print(f"Title: {run.get('display_title', 'No title')}")
+    print(f"Status: {run.get('status', 'unknown')}; conclusion: {run.get('conclusion') or 'none'}")
+    print(f"\n{'Job ID':<8} {'Status':<12} {'Job':<50} {'Details'}")
+    print("-" * 110)
 
-        runs = group_statuses_by_run(statuses)
+    for job in sorted(jobs, key=lambda item: item['id']):
+        status = job.get('conclusion') or job.get('status', 'unknown')
+        details = ''
+        if job.get('status') in WAITING_STATUSES and not job.get('runner_id'):
+            labels = ', '.join(job.get('labels') or []) or 'unspecified labels'
+            details = f"Waiting for runner: {labels}"
+        elif job.get('runner_id'):
+            details = f"Runner {job['runner_id']}"
+        print(
+            f"{job['id']:<8} {format_status(status)} {status:<10} "
+            f"{job.get('name', '')[:50]:<50} {details}"
+        )
 
-        if run_id in runs:
-            found = True
-            jobs = runs[run_id]
-
-            print(f"\nRun #{run_id} - Commit {sha[:7]}")
-            print(f"Commit message: {commit['commit']['message'].split(chr(10))[0]}")
-            print(f"\n{'Job ID':<8} {'Status':<10} {'Description':<50} {'Duration'}")
-            print("-" * 100)
-
-            for job in sorted(jobs, key=lambda j: extract_run_job_from_url(j['target_url'])[1]):
-                run_id_val, job_id = extract_run_job_from_url(job['target_url'])
-                status = job['status']
-                description = job.get('description', 'No description')
-                context = job.get('context', '')
-
-                status_icon = format_status(status)
-                print(f"{job_id:<8} {status_icon} {status:<8} {context:<50} {description}")
-
-            print(f"\nView or download logs:")
-            print(f"  Job view URL: {base_url}{jobs[0]['target_url']}")
-            print(f"  Navigate to: {base_url}/{owner}/{repo}/actions/runs/{run_id}")
-            print(f"  Download logs: python {sys.argv[0]} {owner} {repo} --run {run_id} --download-logs")
-            break
-
-    if not found:
-        print(f"Run #{run_id} not found in recent commits. Try fetching more commits.")
+    print(f"\nView or download logs:")
+    if jobs:
+        print(f"  Job view URL: {jobs[0].get('html_url', '')}")
+    print(f"  Navigate to: {base_url}/{owner}/{repo}/actions/runs/{run_id}")
+    print(f"  Download logs: python {sys.argv[0]} {owner} {repo} --run {run_id} --download-logs")
 
 
-def rerun_workflow_by_number(client: GiteaClient, owner: str, repo: str, run_number: int,
-                             job_id: Optional[int] = None) -> bool:
+def rerun_workflow_by_id(client: GiteaClient, owner: str, repo: str, run_id: int,
+                         job_id: Optional[int] = None) -> bool:
     """
-    Rerun a workflow (or specific job) by run number.
+    Rerun a workflow (or specific job) by run database ID.
 
     Args:
         client: GiteaClient instance
         owner: Repository owner
         repo: Repository name
-        run_number: Run number (sequential number shown in UI, not database ID)
+        run_id: Workflow run database ID used in the Actions URL
         job_id: Optional job ID to rerun specific job (if None, reruns entire workflow)
 
     Returns:
         True if rerun was successful, False otherwise
     """
-    # Get all runs and find the one with matching run_number
-    runs = client.get_actions_runs(owner, repo)
-    matching_runs = [run for run in runs if run.get('run_number') == run_number]
-
-    if not matching_runs:
-        print(f"\nNo run found with run number #{run_number}")
-        return False
-
-    # Use the first matching run (there should only be one)
-    run = matching_runs[0]
-    run_id = run['id']
-
     try:
         if job_id:
-            print(f"\nRerunning job {job_id} from run #{run_number} (run ID: {run_id})...")
+            print(f"\nRerunning job {job_id} from run ID {run_id}...")
             client.rerun_job(owner, repo, run_id, job_id)
             print(f"✓ Successfully triggered rerun of job {job_id}")
         else:
-            print(f"\nRerunning workflow run #{run_number} (run ID: {run_id})...")
+            print(f"\nRerunning workflow run ID {run_id}...")
             client.rerun_workflow(owner, repo, run_id)
-            print(f"✓ Successfully triggered rerun of workflow run #{run_number}")
+            print(f"✓ Successfully triggered rerun of workflow run ID {run_id}")
 
-        print(f"\nView progress at: {client.base_url}/{owner}/{repo}/actions/runs/{run_number}")
+        print(f"\nView progress at: {client.base_url}/{owner}/{repo}/actions/runs/{run_id}")
         return True
 
     except requests.exceptions.HTTPError as e:
@@ -571,10 +643,8 @@ def rerun_workflow_by_number(client: GiteaClient, owner: str, repo: str, run_num
             if e.response.status_code == 403:
                 print("  Reason: Permission denied. You may not have write access to this repository.")
             elif e.response.status_code == 404:
-                print("  Reason: Rerun API endpoint not available.")
-                print("  The rerun API requires Gitea PR #35382, which is not yet merged.")
-                print("  Track progress at: https://github.com/go-gitea/gitea/pull/35382")
-                print("  Current Gitea version: 1.25.1 (rerun expected in v1.26+)")
+                print("  Reason: Run not found or rerun API endpoint unavailable.")
+                print("  The rerun API requires Gitea 1.26 or newer.")
             else:
                 print(f"  Response: {e.response.text}")
         return False
@@ -584,7 +654,8 @@ def rerun_workflow_by_number(client: GiteaClient, owner: str, repo: str, run_num
 
 
 def wait_for_run(owner: str, repo: str, run_id: int, base_url: str, timeout: int = 3600,
-                 poll_interval: int = 10, max_commits: int = 50) -> int:
+                 poll_interval: int = 10, runner_timeout: int = DEFAULT_RUNNER_TIMEOUT,
+                 client: Optional[GiteaClient] = None) -> int:
     """
     Wait for a run to complete, polling every poll_interval seconds.
 
@@ -595,14 +666,15 @@ def wait_for_run(owner: str, repo: str, run_id: int, base_url: str, timeout: int
         base_url: Base URL of Gitea instance
         timeout: Maximum time to wait in seconds (default: 3600)
         poll_interval: Time between polls in seconds (default: 10)
-        max_commits: Maximum number of commits to check (default: 50)
+        runner_timeout: Maximum queued time without an assigned runner
+        client: Optional client override for tests
 
     Returns:
         0 if run completes successfully
         1 if run completes with failures
         127 if timeout is reached
     """
-    client = GiteaClient(base_url, GITEA_TOKEN)
+    client = client or GiteaClient(base_url, GITEA_TOKEN)
     start_time = time.time()
 
     print(f"Waiting for run #{run_id} to complete (timeout: {timeout}s, polling every {poll_interval}s)...")
@@ -617,64 +689,52 @@ def wait_for_run(owner: str, repo: str, run_id: int, base_url: str, timeout: int
             print(f"\n✗ Timeout reached after {int(elapsed)}s")
             return 127
 
-        # Fetch recent commits to find the run
         try:
-            commits = client.list_commits(owner, repo, limit=max_commits)
+            run = client.get_actions_run(owner, repo, run_id)
+            jobs = client.get_run_jobs(owner, repo, run_id)
+            job_statuses = {
+                job['id']: (job.get('conclusion') or job.get('status', 'unknown'))
+                for job in jobs
+            }
 
-            found = False
-            for commit in commits:
-                sha = commit['sha']
-                statuses = client.get_commit_statuses(owner, repo, sha)
-                runs = group_statuses_by_run(statuses)
+            if job_statuses != last_status_display or iteration == 0:
+                print(f"\n[{int(elapsed)}s] Run #{run_id} status:")
+                for job in sorted(jobs, key=lambda item: item['id']):
+                    status = job.get('conclusion') or job.get('status', 'unknown')
+                    job_name = job.get('name', f"Job {job['id']}")[:60]
+                    print(
+                        f"  Job {job['id']}: {format_status(status)} {status:<12} "
+                        f"{job_name}"
+                    )
+                last_status_display = job_statuses.copy()
 
-                if run_id in runs:
-                    found = True
-                    jobs = runs[run_id]
-
-                    # Check job statuses
-                    job_statuses = {}
-                    all_completed = True
-                    has_failure = False
-
-                    for job in jobs:
-                        run_id_val, job_id = extract_run_job_from_url(job['target_url'])
-                        status = job['status']
-                        job_statuses[job_id] = status
-
-                        if status in ['pending', 'running']:
-                            all_completed = False
-                        elif status in ['failure', 'error']:
-                            has_failure = True
-
-                    # Display status update if changed
-                    if job_statuses != last_status_display or iteration == 0:
-                        print(f"\n[{int(elapsed)}s] Run #{run_id} status:")
-                        for job_id in sorted(job_statuses.keys()):
-                            status = job_statuses[job_id]
-                            status_icon = format_status(status)
-                            # Find job context for display
-                            job_info = next((j for j in jobs if extract_run_job_from_url(j['target_url'])[1] == job_id), None)
-                            context = job_info.get('context', f'Job {job_id}') if job_info else f'Job {job_id}'
-                            context = context[:60]  # Truncate long contexts
-                            print(f"  Job {job_id}: {status_icon} {status:<10} {context}")
-                        last_status_display = job_statuses.copy()
-
-                    # Check if all jobs are completed
-                    if all_completed:
-                        print(f"\n{'='*80}")
-                        if has_failure:
-                            print(f"✗ Run #{run_id} completed with failures after {int(elapsed)}s")
-                            return 1
-                        else:
-                            print(f"✓ Run #{run_id} completed successfully after {int(elapsed)}s")
-                            return 0
-
-                    break
-
-            if not found:
-                print(f"✗ Run #{run_id} not found in last {max_commits} commits")
+            if run.get('status') == 'completed':
+                conclusion = run.get('conclusion') or 'unknown'
+                print(f"\n{'='*80}")
+                if conclusion in SUCCESS_CONCLUSIONS:
+                    print(f"✓ Run #{run_id} completed with {conclusion} after {int(elapsed)}s")
+                    return 0
+                print(f"✗ Run #{run_id} completed with {conclusion} after {int(elapsed)}s")
                 return 1
 
+            blocked_jobs = runner_blocked_jobs(jobs, runner_timeout)
+            if blocked_jobs:
+                print(f"\n{'='*80}")
+                print(f"✗ Run #{run_id} is blocked: no runner accepted queued jobs")
+                for job, age in blocked_jobs:
+                    labels = ', '.join(job.get('labels') or []) or 'unspecified'
+                    print(f"  Job {job['id']}: waiting {age}s for runner labels: {labels}")
+                print(
+                    "  Gitea may keep this run queued rather than marking it failed. "
+                    "Check that a matching runner is online."
+                )
+                return 1
+
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                print(f"✗ Run #{run_id} not found")
+                return 1
+            print(f"Warning: Error fetching status: {e}")
         except requests.exceptions.RequestException as e:
             print(f"Warning: Error fetching status: {e}")
 
@@ -722,12 +782,13 @@ def main():
         print("Usage: python gitea_builds.py <owner> <repo> [options]")
         print("\nOptions:")
         print("  --config <path>      Load settings from a dotfile")
-        print("  --run <run_id>       Show details for a specific run")
+        print("  --run <run_id>       Use the database ID from the Actions URL")
         print("  --wait               Wait for a run to complete (requires --run)")
         print("  --download-logs      Download logs for all jobs in a run (requires --run)")
         print("  --rerun              Rerun a failed workflow (requires --run)")
         print("  --rerun-job <job_id> Rerun a specific failed job (requires --run)")
         print("  --timeout <seconds>  Timeout for --wait (default: 3600)")
+        print("  --runner-timeout <s> Fail if no runner accepts a queued job (default: 300)")
         print("  --commits <limit>    Number of commits to check (default: 10)")
         print("  --branch <branch>    Check specific branch (default: repo default branch)")
         print("\nExamples:")
@@ -755,64 +816,23 @@ def main():
             print(f"Error listing repositories: {e}")
         sys.exit(1)
 
-    owner = args[0]
-    repo = args[1]
-
-    # Parse optional arguments
-    run_id = None
-    commit_limit = 10
-    branch = None
-    wait = False
-    download_logs = False
-    rerun = False
-    rerun_job_id = None
-    timeout = 3600
-
-    i = 3
-    while i < len(args):
-        if args[i] == '--run' and i + 1 < len(args):
-            run_id = int(args[i + 1])
-            i += 2
-        elif args[i] == '--commits' and i + 1 < len(args):
-            commit_limit = int(args[i + 1])
-            i += 2
-        elif args[i] == '--branch' and i + 1 < len(args):
-            branch = args[i + 1]
-            i += 2
-        elif args[i] == '--wait':
-            wait = True
-            i += 1
-        elif args[i] == '--download-logs':
-            download_logs = True
-            i += 1
-        elif args[i] == '--rerun':
-            rerun = True
-            i += 1
-        elif args[i] == '--rerun-job' and i + 1 < len(args):
-            rerun_job_id = int(args[i + 1])
-            i += 2
-        elif args[i] == '--timeout' and i + 1 < len(args):
-            timeout = int(args[i + 1])
-            i += 2
-        else:
-            i += 1
-
-    # Validate arguments
-    if wait and not run_id:
-        print("Error: --wait requires --run <run_id>")
+    try:
+        parsed = parse_cli_args(args)
+    except ValueError as e:
+        print(f"Error: {e}")
         sys.exit(1)
 
-    if download_logs and not run_id:
-        print("Error: --download-logs requires --run <run_id>")
-        sys.exit(1)
-
-    if rerun and not run_id:
-        print("Error: --rerun requires --run <run_id>")
-        sys.exit(1)
-
-    if rerun_job_id and not run_id:
-        print("Error: --rerun-job requires --run <run_id>")
-        sys.exit(1)
+    owner = parsed['owner']
+    repo = parsed['repo']
+    run_id = parsed['run_id']
+    commit_limit = parsed['commit_limit']
+    branch = parsed['branch']
+    wait = parsed['wait']
+    download_logs = parsed['download_logs']
+    rerun = parsed['rerun']
+    rerun_job_id = parsed['rerun_job_id']
+    timeout = parsed['timeout']
+    runner_timeout = parsed['runner_timeout']
 
     # Initialize client
     client = GiteaClient(GITEA_URL, GITEA_TOKEN)
@@ -820,13 +840,24 @@ def main():
     try:
         # Handle wait mode
         if wait:
-            exit_code = wait_for_run(owner, repo, run_id, GITEA_URL, timeout=timeout)
+            exit_code = wait_for_run(
+                owner, repo, run_id, GITEA_URL, timeout=timeout,
+                runner_timeout=runner_timeout, client=client,
+            )
             sys.exit(exit_code)
 
         # Handle rerun mode
         if rerun or rerun_job_id:
-            success = rerun_workflow_by_number(client, owner, repo, run_id, job_id=rerun_job_id)
+            success = rerun_workflow_by_id(client, owner, repo, run_id, job_id=rerun_job_id)
             sys.exit(0 if success else 1)
+
+        if run_id:
+            print_run_details(client, owner, repo, run_id, GITEA_URL)
+            if download_logs:
+                downloaded = download_run_logs(client, owner, repo, run_id)
+                if not downloaded:
+                    sys.exit(1)
+            return
 
         # Get repository info to determine branch
         repo_info = client.get_repo_info(owner, repo)
@@ -840,15 +871,8 @@ def main():
             print(f"No commits found for {owner}/{repo}")
             sys.exit(1)
 
-        if run_id:
-            print_run_details(owner, repo, run_id, commits, GITEA_URL)
-
-            # Handle log download if requested
-            if download_logs:
-                download_run_logs(client, owner, repo, run_id)
-        else:
-            print(f"Fetching build status for {owner}/{repo} on branch '{branch}' (checking last {commit_limit} commits)...")
-            print_builds_summary(owner, repo, commits, GITEA_URL, branch)
+        print(f"Fetching build status for {owner}/{repo} on branch '{branch}' (checking last {commit_limit} commits)...")
+        print_builds_summary(client, owner, repo, commits, branch)
 
     except requests.exceptions.RequestException as e:
         print(f"\nError: {e}")

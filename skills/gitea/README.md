@@ -59,8 +59,8 @@ scripts/gitea_builds.py myorg myrepo --run 215 --wait
 - **List builds** - View recent workflow runs with status, branch, and commit info
 - **View details** - See individual job statuses, platforms, and durations
 - **Download logs** - Download job logs from CI builds for debugging and archival
-- **Wait for completion** - Monitor builds with proper exit codes (0=success, 1=failure, 127=timeout)
-- **Rerun workflows** - Rerun failed workflows or specific jobs with a single command *(requires future Gitea version)*
+- **Wait for completion** - Monitor builds with proper exit codes (0=success, 1=failure or runner-blocked, 127=timeout)
+- **Rerun workflows** - Rerun failed workflows or specific jobs with a single command *(requires Gitea 1.26+)*
 - **Branch filtering** - Check builds on specific branches
 - **CI/CD integration** - Perfect for automation scripts
 - **Visual indicators** - Clear status icons (✓ ✗ ○ ● ⊗ −)
@@ -100,7 +100,7 @@ scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait --timeout 1800
 ### Exit Codes (--wait mode)
 
 - `0` - Build completed successfully (all jobs passed)
-- `1` - Build completed with failures
+- `1` - Build failed, was cancelled, or remained queued without a runner
 - `127` - Timeout reached
 
 ### Example: CI/CD Automation
@@ -228,12 +228,13 @@ scripts/gitea_builds.py myorg myrepo --branch develop
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--run <id>` | integer | - | Show details for specific run |
+| `--run <id>` | integer | - | Database ID from `/actions/runs/<id>` |
 | `--download-logs` | flag | false | Download logs for all jobs (requires --run) |
 | `--wait` | flag | false | Wait for run completion (requires --run) |
 | `--rerun` | flag | false | Rerun entire workflow (requires --run) |
 | `--rerun-job <id>` | integer | - | Rerun specific job (requires --run) |
 | `--timeout <sec>` | integer | 3600 | Timeout for --wait in seconds |
+| `--runner-timeout <sec>` | integer | 300 | Fail if a queued job remains unassigned this long |
 | `--commits <n>` | integer | 10 | Number of commits to check |
 | `--branch <name>` | string | default | Branch to check |
 

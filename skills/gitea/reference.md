@@ -30,12 +30,13 @@ scripts/gitea_builds.py <owner> <repo> [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--run <run_id>` | integer | - | Show details for specific run |
+| `--run <run_id>` | integer | - | Database ID from `/actions/runs/<run_id>` |
 | `--download-logs` | flag | false | Download logs for all jobs in run (requires --run) |
 | `--wait` | flag | false | Wait for run to complete (requires --run) |
 | `--rerun` | flag | false | Rerun entire workflow (requires --run) |
 | `--rerun-job <job_id>` | integer | - | Rerun specific job (requires --run) |
 | `--timeout <seconds>` | integer | 3600 | Timeout for --wait in seconds |
+| `--runner-timeout <seconds>` | integer | 300 | Fail if a queued job remains unassigned this long |
 | `--commits <limit>` | integer | 10 | Number of commits to check |
 | `--branch <branch>` | string | default | Branch name to check |
 
@@ -76,7 +77,7 @@ The script uses standard Unix exit codes for automation:
 | Exit Code | Meaning | When It Occurs |
 |-----------|---------|----------------|
 | 0 | Success | Run completed successfully (--wait mode), or rerun triggered successfully (--rerun mode), or normal list/display operation completed |
-| 1 | Failure | Run completed with job failures, run not found, rerun failed, or execution error |
+| 1 | Failure | Run failed, was cancelled, exceeded the runner timeout, was not found, or an operation failed |
 | 127 | Timeout | --wait timeout reached before run completed |
 
 **Mode-specific exit codes:**
@@ -159,7 +160,7 @@ GET /api/v1/repos/{owner}/{repo}/actions/runs
 ```
 **Authentication:** Required
 **Returns:** Array of workflow runs with run numbers and IDs
-**Used when:** Downloading logs (maps run numbers to run IDs)
+**Used when:** Listing recent workflow runs
 
 ### Get Run Jobs
 ```
@@ -200,11 +201,9 @@ POST /api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/rerun
 **Used when:** Rerunning failed workflow with --rerun flag
 
 **Notes:**
-- **NOT YET AVAILABLE:** Requires PR #35382 to be merged (still pending as of Nov 2025)
-- When available, will require write access to the repository
-- When available, will require Gitea v1.26+ (estimated)
-- Currently returns 404 (endpoint not found) on Gitea 1.25.1 and earlier
-- Will create a new workflow run with a new run number when available
+- Requires write access to the repository and Gitea 1.26+
+- Returns 404 when the endpoint is unavailable on older Gitea releases
+- Creates a new workflow run with a new run number
 
 ### Rerun Specific Job
 ```
@@ -219,11 +218,9 @@ POST /api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/jobs/{job_id}/rerun
 **Used when:** Rerunning specific job with --rerun-job flag
 
 **Notes:**
-- **NOT YET AVAILABLE:** Requires PR #35382 to be merged (still pending as of Nov 2025)
-- When available, will require write access to the repository
-- When available, will require Gitea v1.26+ (estimated)
-- Currently returns 404 (endpoint not found) on Gitea 1.25.1 and earlier
-- Will handle job dependencies automatically when available
+- Requires write access to the repository and Gitea 1.26+
+- Returns 404 when the endpoint is unavailable on older Gitea releases
+- Handles job dependencies automatically
 - More efficient than rerunning entire workflow when only one job failed
 
 ---
@@ -380,11 +377,10 @@ logs/run_<run_number>/
 5. **Display results** in formatted tables
 
 **Log Download Operation (--download-logs):**
-1. **Fetch workflow runs** via actions API
-2. **Map run number** (shown in UI) to run database ID
-3. **Get jobs** for the specific run via actions API
-4. **Download logs** for each job using job database IDs
-5. **Save to files** in organized directory structure
+1. **Use the run database ID** from `--run`
+2. **Get jobs** for the specific run via actions API
+3. **Download logs** for each job using job database IDs
+4. **Save to files** in organized directory structure
 
 **Key ID Mappings:**
 - **Run number** (e.g., #215) → sequential number shown in UI
@@ -408,7 +404,7 @@ Pattern: `/actions/runs/{run_id}/jobs/{job_id}`
 
 - **Poll interval:** 10 seconds (fixed)
 - **Default timeout:** 3600 seconds (1 hour)
-- **Max commits checked:** 50 (configurable)
+- **Runner timeout:** 300 seconds queued without an assigned runner
 - **Efficiency:** Only displays when status changes
 
 ### Job Status Determination

@@ -50,7 +50,7 @@ scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
 
 **Exit codes for --wait:**
 - `0` - Build succeeded (all jobs passed)
-- `1` - Build failed
+- `1` - Build failed, was cancelled, or remained queued without a runner
 - `127` - Timeout reached
 
 ### Rerun a failed workflow
@@ -58,23 +58,24 @@ scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
 scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun
 ```
 
-**Note:** Requires Gitea with rerun API support (PR #35382, not yet merged as of Nov 2025)
+**Note:** Requires Gitea 1.26 or newer for rerun API support.
 
 ### Rerun a specific failed job
 ```bash
 scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun-job <job_id>
 ```
 
-**Note:** Requires Gitea with rerun API support (PR #35382, not yet merged as of Nov 2025)
+**Note:** Requires Gitea 1.26 or newer for rerun API support.
 
 ## Common Options
 
-- `--run <run_id>` - Show specific run details
+- `--run <run_id>` - Use the database ID from `/actions/runs/<run_id>` (not the smaller UI run number)
 - `--download-logs` - Download logs for all jobs in a run (requires --run)
 - `--wait` - Wait for run completion (requires --run)
 - `--rerun` - Rerun entire workflow (requires --run)
 - `--rerun-job <job_id>` - Rerun specific job (requires --run)
 - `--timeout <seconds>` - Wait timeout (default: 3600)
+- `--runner-timeout <seconds>` - Fail a queued, unassigned job after this many seconds (default: 300)
 - `--commits <limit>` - Check last N commits (default: 10)
 - `--branch <branch>` - Check specific branch
 

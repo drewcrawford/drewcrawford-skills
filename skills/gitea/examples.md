@@ -300,7 +300,7 @@ The script will poll every 10 seconds and show status changes as jobs progress f
 
 ## Example 10: Rerun Failed Workflow
 
-**⚠️ IMPORTANT:** The rerun functionality requires Gitea PR #35382, which is **not yet merged** as of November 2025. This feature will be available in a future Gitea version (estimated v1.26+). Track progress at: https://github.com/go-gitea/gitea/pull/35382
+**Compatibility:** Rerun functionality requires Gitea 1.26 or newer and repository write access.
 
 **Scenario:** User fixed an issue and wants to rerun the entire failed workflow.
 
