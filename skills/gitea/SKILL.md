@@ -149,9 +149,22 @@ fi
 
 ## Configuration
 
-**Configured via environment variables:**
+**Configured via a `.gitea` dotfile or environment variables:**
+
+The script looks for `.gitea` in the current directory and then `~/.gitea`.
+Use `--config <path>` or `GITEA_CONFIG` to select another file. The file uses
+shell-style settings:
+
+```bash
+GITEA_URL="https://gitea.example.com"
+GITEA_TOKEN="your_personal_access_token"
+```
+
+Explicit environment variables override dotfile values.
+
 - `GITEA_URL`: Base URL of your Gitea instance (e.g. `https://gitea.example.com`)
 - `GITEA_TOKEN`: Personal access token
+- `GITEA_CONFIG`: Optional path to the dotfile
 - Network: Requires access to your Gitea instance
 
 ## Requirements

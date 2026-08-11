@@ -232,7 +232,18 @@ POST /api/v1/repos/{owner}/{repo}/actions/runs/{run_id}/jobs/{job_id}/rerun
 
 ### Gitea Connection
 
-The script reads its configuration from environment variables:
+The script reads its configuration from a `.gitea` dotfile or environment
+variables. It checks `.gitea` in the current directory and then `~/.gitea`.
+Use `--config <path>` or `GITEA_CONFIG` to select another file. Dotfiles use
+shell-style `KEY=value` settings:
+
+```bash
+GITEA_URL="https://gitea.example.com"
+GITEA_TOKEN="YOUR_GITEA_TOKEN"
+```
+
+Explicit environment variables override dotfile values. The environment-only
+form remains supported:
 
 ```bash
 export GITEA_URL="https://gitea.example.com"
@@ -241,6 +252,7 @@ export GITEA_TOKEN="YOUR_GITEA_TOKEN"
 
 **GITEA_URL:** Base URL of your Gitea instance
 **GITEA_TOKEN:** Personal access token with `read:repository` scope
+**GITEA_CONFIG:** Optional path to the dotfile
 
 ### Network Requirements
 

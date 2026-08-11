@@ -137,15 +137,34 @@ Claude automatically loads only the documentation it needs for your specific que
 
 ## Configuration
 
-The script is configured via environment variables:
+The script reads configuration from a `.gitea` dotfile when present. It looks
+for `.gitea` in the current directory and then `~/.gitea`. You can also pass a
+specific file with `--config` or set `GITEA_CONFIG`.
+
+The file uses shell-style `KEY=value` settings:
+
+```bash
+GITEA_URL="https://gitea.example.com"
+GITEA_TOKEN="your_personal_access_token"
+```
+
+Environment variables take precedence over values in the dotfile. The
+original environment-variable configuration remains supported:
 
 ```bash
 export GITEA_URL="https://gitea.example.com"
 export GITEA_TOKEN="your_personal_access_token"
 ```
 
+For example:
+
+```bash
+scripts/gitea_builds.py --config ~/.config/gitea myorg myrepo
+```
+
 - **GITEA_URL:** Base URL of your Gitea instance
 - **GITEA_TOKEN:** Personal access token with `read:repository` scope
+- **GITEA_CONFIG:** Optional path to the dotfile
 - **Network:** Requires network access to your Gitea instance (VPN if it is private)
 
 ---

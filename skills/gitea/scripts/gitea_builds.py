@@ -12,8 +12,92 @@ import re
 import time
 import os
 from datetime import datetime
-from typing import Optional, Dict, List
+from pathlib import Path
+from typing import Optional, Dict, List, Tuple
 from collections import defaultdict
+
+
+def load_dotfile(path: Path) -> Dict[str, str]:
+    """Load shell-style ``KEY=value`` settings from a dotfile.
+
+    Blank lines and comments are ignored. Values may be wrapped in single or
+    double quotes, and an optional ``export`` prefix is accepted. This keeps
+    the file format useful when the same settings are also sourced by a shell
+    without requiring an additional dependency such as python-dotenv.
+    """
+    settings = {}
+
+    with path.open(encoding='utf-8') as dotfile:
+        for line_number, line in enumerate(dotfile, start=1):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            if line.startswith('export '):
+                line = line[7:].lstrip()
+
+            if '=' not in line:
+                raise ValueError(f"{path}:{line_number}: expected KEY=value")
+
+            key, value = line.split('=', 1)
+            key = key.strip()
+            value = value.strip()
+
+            if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key):
+                raise ValueError(f"{path}:{line_number}: invalid setting name {key!r}")
+
+            if value.startswith(("'", '"')):
+                quote = value[0]
+                closing_quote = value.find(quote, 1)
+                if closing_quote == -1:
+                    raise ValueError(f"{path}:{line_number}: unterminated quoted value")
+                trailing = value[closing_quote + 1:].strip()
+                if trailing and not trailing.startswith('#'):
+                    raise ValueError(f"{path}:{line_number}: unexpected text after quoted value")
+                value = value[1:closing_quote]
+            elif ' #' in value:
+                value = value.split(' #', 1)[0].rstrip()
+
+            settings[key] = value
+
+    return settings
+
+
+def find_dotfile(explicit_path: Optional[str] = None) -> Optional[Path]:
+    """Find the Gitea configuration dotfile, if one is available.
+
+    An explicitly supplied path wins. Otherwise, ``GITEA_CONFIG`` is honored,
+    followed by ``.gitea`` in the current directory and then the user's home
+    directory.
+    """
+    configured_path = explicit_path or os.environ.get('GITEA_CONFIG')
+    if configured_path:
+        return Path(configured_path).expanduser()
+
+    for candidate in (Path.cwd() / '.gitea', Path.home() / '.gitea'):
+        if candidate.is_file():
+            return candidate
+
+    return None
+
+
+def extract_config_path(args: List[str]) -> Tuple[Optional[str], List[str]]:
+    """Remove the optional ``--config PATH`` argument from CLI arguments."""
+    remaining = []
+    config_path = None
+    i = 0
+
+    while i < len(args):
+        if args[i] == '--config':
+            if i + 1 >= len(args):
+                raise ValueError('--config requires a path')
+            config_path = args[i + 1]
+            i += 2
+        else:
+            remaining.append(args[i])
+            i += 1
+
+    return config_path, remaining
 
 
 class GiteaClient:
@@ -602,24 +686,42 @@ def wait_for_run(owner: str, repo: str, run_id: int, base_url: str, timeout: int
 def main():
     global GITEA_TOKEN
 
-    # Configuration - get from environment
+    # Configuration - load the optional dotfile first, then let explicitly
+    # exported environment variables take precedence.
+    try:
+        config_path, args = extract_config_path(sys.argv[1:])
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    dotfile = find_dotfile(config_path)
+    if dotfile:
+        try:
+            for key, value in load_dotfile(dotfile).items():
+                os.environ.setdefault(key, value)
+        except (OSError, ValueError) as e:
+            print(f"Error loading Gitea configuration from {dotfile}: {e}")
+            sys.exit(1)
+
     GITEA_URL = os.environ.get("GITEA_URL")
     GITEA_TOKEN = os.environ.get("GITEA_TOKEN")
 
     if not GITEA_URL:
         print("Error: GITEA_URL environment variable not set")
         print("Please set it with: export GITEA_URL=https://gitea.example.com")
+        print("Or create ~/.gitea with GITEA_URL and GITEA_TOKEN settings")
         sys.exit(1)
 
     if not GITEA_TOKEN:
         print("Error: GITEA_TOKEN environment variable not set")
         print("Please set it with: export GITEA_TOKEN=your_token_here")
+        print("Or create ~/.gitea with GITEA_URL and GITEA_TOKEN settings")
         sys.exit(1)
 
     # Parse command line arguments
-    if len(sys.argv) < 3:
+    if len(args) < 2:
         print("Usage: python gitea_builds.py <owner> <repo> [options]")
         print("\nOptions:")
+        print("  --config <path>      Load settings from a dotfile")
         print("  --run <run_id>       Show details for a specific run")
         print("  --wait               Wait for a run to complete (requires --run)")
         print("  --download-logs      Download logs for all jobs in a run (requires --run)")
@@ -653,8 +755,8 @@ def main():
             print(f"Error listing repositories: {e}")
         sys.exit(1)
 
-    owner = sys.argv[1]
-    repo = sys.argv[2]
+    owner = args[0]
+    repo = args[1]
 
     # Parse optional arguments
     run_id = None
@@ -667,30 +769,30 @@ def main():
     timeout = 3600
 
     i = 3
-    while i < len(sys.argv):
-        if sys.argv[i] == '--run' and i + 1 < len(sys.argv):
-            run_id = int(sys.argv[i + 1])
+    while i < len(args):
+        if args[i] == '--run' and i + 1 < len(args):
+            run_id = int(args[i + 1])
             i += 2
-        elif sys.argv[i] == '--commits' and i + 1 < len(sys.argv):
-            commit_limit = int(sys.argv[i + 1])
+        elif args[i] == '--commits' and i + 1 < len(args):
+            commit_limit = int(args[i + 1])
             i += 2
-        elif sys.argv[i] == '--branch' and i + 1 < len(sys.argv):
-            branch = sys.argv[i + 1]
+        elif args[i] == '--branch' and i + 1 < len(args):
+            branch = args[i + 1]
             i += 2
-        elif sys.argv[i] == '--wait':
+        elif args[i] == '--wait':
             wait = True
             i += 1
-        elif sys.argv[i] == '--download-logs':
+        elif args[i] == '--download-logs':
             download_logs = True
             i += 1
-        elif sys.argv[i] == '--rerun':
+        elif args[i] == '--rerun':
             rerun = True
             i += 1
-        elif sys.argv[i] == '--rerun-job' and i + 1 < len(sys.argv):
-            rerun_job_id = int(sys.argv[i + 1])
+        elif args[i] == '--rerun-job' and i + 1 < len(args):
+            rerun_job_id = int(args[i + 1])
             i += 2
-        elif sys.argv[i] == '--timeout' and i + 1 < len(sys.argv):
-            timeout = int(sys.argv[i + 1])
+        elif args[i] == '--timeout' and i + 1 < len(args):
+            timeout = int(args[i + 1])
             i += 2
         else:
             i += 1
