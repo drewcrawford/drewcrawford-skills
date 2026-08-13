@@ -34,14 +34,8 @@ after `git pull` to update.
 
 ## What's in the box
 
-**Metacognition** — the skills I'd keep if I could only keep three:
+**Metacognition** — two skills for investigations and architectural judgment:
 
-* **stuck** — teaches the agent to notice it's thrashing (compile-fix loops,
-  repeated test hangs, "let me try a completely different approach" for the
-  third time) and escalate with a diagnostic report instead of burning another
-  hour. Includes a transcript analyzer that scores sessions for stuck patterns
-  after the fact. Detects which agent runtime it's in (Claude Code, Codex,
-  Antigravity) and adapts.
 * **investigate** — a protocol for hard bugs: a running INVESTIGATION.md that
   separates what we've *verified* (with the evidence) from what we merely
   suspect, so a multi-day debugging session survives context loss and
