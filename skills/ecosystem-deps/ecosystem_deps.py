@@ -332,6 +332,10 @@ def main():
     group.add_argument("--author", help="crates.io username; ecosystem = their published crates")
     group.add_argument("--crates", help="comma-separated crate names")
     group.add_argument("--crates-file", help="file of crate names, one per line (# comments ok)")
+    parser.add_argument(
+        "--format", choices=("text", "json"), default="text",
+        help="output format (default: text)",
+    )
     args = parser.parse_args()
 
     ecosystem, label = resolve_ecosystem(args)
@@ -351,13 +355,34 @@ def main():
     )
 
     if not eco_crates:
-        print(f"No external {label} dependencies found.")
+        if args.format == "json":
+            print(json.dumps({"ecosystem": label, "dependencies": [], "cycles": []}, indent=2))
+        else:
+            print(f"No external {label} dependencies found.")
         return
 
     # Group by rank
     by_rank = defaultdict(list)
     for crate, rank in ranks.items():
         by_rank[rank].append(crate)
+
+    if args.format == "json":
+        dependencies = []
+        for crate, rank in sorted(ranks.items(), key=lambda item: (item[1], item[0])):
+            version, _ = eco_crates[crate]
+            dependencies.append({
+                "name": crate,
+                "version": version,
+                "rank": rank,
+                "dependencies": sorted(eco_deps[crate]),
+                "in_cycle": crate in in_cycle,
+            })
+        print(json.dumps({
+            "ecosystem": label,
+            "dependencies": dependencies,
+            "cycles": sorted(in_cycle),
+        }, indent=2))
+        return
 
     print(f"External {label} Dependencies (topologically sorted by rank)")
     print("=" * 70)

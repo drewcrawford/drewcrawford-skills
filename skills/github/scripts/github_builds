@@ -6,6 +6,8 @@ This script connects to GitHub and lists recent workflow runs
 for a specified repository, showing their status and relevant IDs.
 """
 
+import argparse
+import json
 import requests
 import sys
 import re
@@ -14,6 +16,7 @@ import os
 import zipfile
 import io
 from datetime import datetime
+from contextlib import redirect_stdout
 from typing import Optional, List
 
 
@@ -110,6 +113,13 @@ class GitHubClient:
         response.raise_for_status()
         data = response.json()
         return data.get('workflow_runs', [])
+
+    def get_actions_run(self, owner: str, repo: str, run_id: int) -> dict:
+        """Get one workflow run by database ID."""
+        url = f"{self.base_url}/repos/{owner}/{repo}/actions/runs/{run_id}"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        return response.json()
 
     def get_run_jobs(self, owner: str, repo: str, run_id: int) -> List[dict]:
         """
@@ -519,7 +529,7 @@ def wait_for_run(client: GitHubClient, owner: str, repo: str, run_id: int,
     Returns:
         0 if run completes successfully
         1 if run completes with failures
-        127 if timeout is reached
+        124 if timeout is reached
     """
     start_time = time.time()
 
@@ -533,7 +543,7 @@ def wait_for_run(client: GitHubClient, owner: str, repo: str, run_id: int,
 
         if elapsed > timeout:
             print(f"\n✗ Timeout reached after {int(elapsed)}s")
-            return 127
+            return 124
 
         try:
             # Get run status
@@ -588,148 +598,118 @@ def wait_for_run(client: GitHubClient, owner: str, repo: str, run_id: int,
         iteration += 1
 
 
-def main():
-    # Configuration - get token from environment
-    GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Inspect and operate GitHub Actions workflow runs.",
+        epilog="Exit codes for --wait: 0 success, 1 failed/cancelled, 124 timeout.",
+    )
+    parser.add_argument("owner", help="repository owner")
+    parser.add_argument("repo", help="repository name")
+    parser.add_argument("--run", type=int, help="workflow run database ID")
+    parser.add_argument("--wait", action="store_true", help="wait for --run to finish")
+    parser.add_argument("--download-logs", action="store_true", help="download logs for --run")
+    rerun_group = parser.add_mutually_exclusive_group()
+    rerun_group.add_argument("--rerun", action="store_true", help="rerun all jobs in --run")
+    rerun_group.add_argument("--rerun-failed", action="store_true", help="rerun failed jobs in --run")
+    parser.add_argument("--timeout", type=int, default=3600, help="wait timeout in seconds")
+    parser.add_argument("--branch", help="filter list view by branch")
+    parser.add_argument("--topics", action="store_true", help="list repository topics")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument("--output-dir", default="logs", help="base directory for downloaded logs")
+    return parser
 
-    if not GITHUB_TOKEN:
-        print("Error: GITHUB_TOKEN environment variable not set")
-        print("Please set it with: export GITHUB_TOKEN=your_token_here")
-        sys.exit(1)
 
-    # Parse command line arguments
-    if len(sys.argv) < 3:
-        print("Usage: python github_builds.py <owner> <repo> [options]")
-        print("\nOptions:")
-        print("  --run <run_id>       Show details for a specific run")
-        print("  --wait               Wait for a run to complete (requires --run)")
-        print("  --download-logs      Download logs for all jobs in a run (requires --run)")
-        print("  --rerun              Rerun a workflow (requires --run)")
-        print("  --rerun-failed       Rerun only failed jobs (requires --run)")
-        print("  --timeout <seconds>  Timeout for --wait (default: 3600)")
-        print("  --branch <branch>    Filter by specific branch")
-        print("  --topics             Show repository topics (tags)")
-        print("\nExamples:")
-        print("  python github_builds.py drewcrawford wasm_safe_mutex")
-        print("  python github_builds.py drewcrawford wasm_safe_mutex --run 19609289127")
-        print("  python github_builds.py drewcrawford wasm_safe_mutex --run 19609289127 --download-logs")
-        print("  python github_builds.py drewcrawford wasm_safe_mutex --run 19609289127 --wait")
-        print("  python github_builds.py drewcrawford wasm_safe_mutex --run 19609289127 --rerun")
-        print("  python github_builds.py drewcrawford wasm_safe_mutex --run 19609289127 --rerun-failed")
-        print("  python github_builds.py drewcrawford wasm_safe_mutex --branch main")
-        print("  python github_builds.py drewcrawford wasm_safe_mutex --topics")
-        print("\nExit codes (when using --wait):")
-        print("  0   - Run completed successfully")
-        print("  1   - Run completed with failures")
-        print("  127 - Timeout reached")
-        print("\nEnvironment variables:")
-        print("  GITHUB_TOKEN - Required. Your GitHub personal access token")
-        print("\nListing your repositories:")
-        client = GitHubClient(GITHUB_TOKEN)
-        try:
-            repos = client.list_repos()
-            for repo in repos[:30]:  # Limit to first 30
-                print(f"  - {repo['owner']['login']}/{repo['name']}")
-            if len(repos) > 30:
-                print(f"  ... and {len(repos) - 30} more")
-        except Exception as e:
-            print(f"Error listing repositories: {e}")
-        sys.exit(1)
+def parse_cli_args(argv):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.timeout < 0:
+        parser.error("--timeout must not be negative")
+    for enabled, option in (
+        (args.wait, "--wait"),
+        (args.download_logs, "--download-logs"),
+        (args.rerun, "--rerun"),
+        (args.rerun_failed, "--rerun-failed"),
+    ):
+        if enabled and args.run is None:
+            parser.error(f"{option} requires --run RUN_ID")
+    if args.topics and args.run is not None:
+        parser.error("--topics cannot be combined with --run")
+    return args
 
-    owner = sys.argv[1]
-    repo = sys.argv[2]
 
-    # Parse optional arguments
-    run_id = None
-    branch = None
-    wait = False
-    download_logs = False
-    rerun = False
-    rerun_failed = False
-    timeout = 3600
-    topics = False
+def main(argv=None):
+    args = parse_cli_args(sys.argv[1:] if argv is None else argv)
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        print(
+            "Error: GITHUB_TOKEN is required for GitHub API operations. "
+            "Set it in the environment and retry.",
+            file=sys.stderr,
+        )
+        return 1
 
-    i = 3
-    while i < len(sys.argv):
-        if sys.argv[i] == '--run' and i + 1 < len(sys.argv):
-            run_id = int(sys.argv[i + 1])
-            i += 2
-        elif sys.argv[i] == '--branch' and i + 1 < len(sys.argv):
-            branch = sys.argv[i + 1]
-            i += 2
-        elif sys.argv[i] == '--wait':
-            wait = True
-            i += 1
-        elif sys.argv[i] == '--download-logs':
-            download_logs = True
-            i += 1
-        elif sys.argv[i] == '--rerun':
-            rerun = True
-            i += 1
-        elif sys.argv[i] == '--rerun-failed':
-            rerun_failed = True
-            i += 1
-        elif sys.argv[i] == '--timeout' and i + 1 < len(sys.argv):
-            timeout = int(sys.argv[i + 1])
-            i += 2
-        elif sys.argv[i] == '--topics':
-            topics = True
-            i += 1
-        else:
-            i += 1
-
-    # Validate arguments
-    if wait and not run_id:
-        print("Error: --wait requires --run <run_id>")
-        sys.exit(1)
-
-    if download_logs and not run_id:
-        print("Error: --download-logs requires --run <run_id>")
-        sys.exit(1)
-
-    if rerun and not run_id:
-        print("Error: --rerun requires --run <run_id>")
-        sys.exit(1)
-
-    if rerun_failed and not run_id:
-        print("Error: --rerun-failed requires --run <run_id>")
-        sys.exit(1)
-
-    # Initialize client
-    client = GitHubClient(GITHUB_TOKEN)
+    owner, repo, run_id = args.owner, args.repo, args.run
+    client = GitHubClient(token)
 
     try:
         # Handle topics mode
-        if topics:
-            print_topics(client, owner, repo)
-            sys.exit(0)
+        if args.topics:
+            if args.format == "json":
+                print(json.dumps({"owner": owner, "repo": repo, "topics": client.get_topics(owner, repo)}, indent=2))
+            else:
+                print_topics(client, owner, repo)
+            return 0
 
         # Handle wait mode
-        if wait:
-            exit_code = wait_for_run(client, owner, repo, run_id, timeout=timeout)
-            sys.exit(exit_code)
+        if args.wait:
+            stream = sys.stderr if args.format == "json" else sys.stdout
+            with redirect_stdout(stream):
+                exit_code = wait_for_run(client, owner, repo, run_id, timeout=args.timeout)
+            if args.format == "json":
+                print(json.dumps({"owner": owner, "repo": repo, "run_id": run_id, "exit_code": exit_code}))
+            return exit_code
 
         # Handle rerun mode
-        if rerun or rerun_failed:
-            success = rerun_workflow_run(client, owner, repo, run_id, failed_only=rerun_failed)
-            sys.exit(0 if success else 1)
+        if args.rerun or args.rerun_failed:
+            stream = sys.stderr if args.format == "json" else sys.stdout
+            with redirect_stdout(stream):
+                success = rerun_workflow_run(client, owner, repo, run_id, failed_only=args.rerun_failed)
+            if args.format == "json":
+                print(json.dumps({"owner": owner, "repo": repo, "run_id": run_id, "rerun": "failed" if args.rerun_failed else "all", "success": success}))
+            return 0 if success else 1
 
         if run_id:
-            print_run_details(client, owner, repo, run_id)
-
             # Handle log download if requested
-            if download_logs:
-                download_run_logs(client, owner, repo, run_id)
+            if args.download_logs:
+                stream = sys.stderr if args.format == "json" else sys.stdout
+                with redirect_stdout(stream):
+                    downloaded = download_run_logs(client, owner, repo, run_id, args.output_dir)
+                if args.format == "json":
+                    print(json.dumps({"run_id": run_id, "downloaded_files": downloaded, "output_dir": args.output_dir}))
+                return 0 if downloaded else 1
+            if args.format == "json":
+                run = client.get_actions_run(owner, repo, run_id)
+                jobs = client.get_run_jobs(owner, repo, run_id)
+                print(json.dumps({"run": run, "jobs": jobs}, indent=2))
+            else:
+                print_run_details(client, owner, repo, run_id)
         else:
-            print(f"Fetching workflow runs for {owner}/{repo}...")
-            print_builds_summary(client, owner, repo, branch)
+            if args.format == "json":
+                runs = client.get_actions_runs(owner, repo)
+                if args.branch:
+                    runs = [run for run in runs if run.get("head_branch") == args.branch]
+                print(json.dumps({"owner": owner, "repo": repo, "branch": args.branch, "runs": runs[:20]}, indent=2))
+            else:
+                print(f"Fetching workflow runs for {owner}/{repo}...", file=sys.stderr)
+                print_builds_summary(client, owner, repo, args.branch)
 
     except requests.exceptions.RequestException as e:
-        print(f"\nError: {e}")
+        print(f"Error: {e}", file=sys.stderr)
         if hasattr(e, 'response') and e.response is not None:
-            print(f"Response: {e.response.text}")
-        sys.exit(1)
+            print(f"Response: {e.response.text}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

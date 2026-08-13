@@ -1,34 +1,63 @@
-#!/bin/bash
-# Step 11: Ensure CLAUDE.md is a symlink to AGENTS.md
+#!/bin/sh
 
-set -e
+set -eu
 
-# Check if AGENTS.md exists
-if [ ! -f "AGENTS.md" ]; then
-    echo "ERROR: AGENTS.md does not exist in the current directory"
+usage() {
+    cat <<'EOF'
+Usage: 11_ensure_agents_symlink [OPTIONS]
+
+Check that CLAUDE.md is a symlink to AGENTS.md. Checking is the default;
+filesystem changes require --apply.
+
+Options:
+  --root PATH  Project directory (default: cwd)
+  --apply      Create or repair the symlink
+  --force      With --apply, replace a non-symlink CLAUDE.md
+  -h, --help   Show this help and exit
+
+Exit codes: 0 compliant/applied, 1 drift detected, 2 invalid or unsafe request.
+EOF
+}
+
+root=.
+apply=false
+force=false
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --root)
+            [ "$#" -ge 2 ] || { echo "Error: --root requires a path" >&2; usage >&2; exit 2; }
+            root=$2
+            shift 2
+            ;;
+        --apply) apply=true; shift ;;
+        --force) force=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+    esac
+done
+
+[ -d "$root" ] || { echo "Error: root is not a directory: $root" >&2; exit 2; }
+[ -f "$root/AGENTS.md" ] || { echo "Error: AGENTS.md does not exist in $root" >&2; exit 2; }
+
+claude_path=$root/CLAUDE.md
+if [ -L "$claude_path" ] && [ "$(readlink "$claude_path")" = "AGENTS.md" ]; then
+    echo "OK: CLAUDE.md -> AGENTS.md"
+    exit 0
+fi
+
+if [ "$apply" = false ]; then
+    echo "DRIFT: CLAUDE.md is not a symlink to AGENTS.md"
+    echo "Run with --apply to repair it. A regular file additionally requires --force."
     exit 1
 fi
 
-# Check if CLAUDE.md exists and is a symlink to AGENTS.md
-if [ -L "CLAUDE.md" ]; then
-    # It's a symlink, check if it points to AGENTS.md
-    TARGET=$(readlink "CLAUDE.md")
-    if [ "$TARGET" = "AGENTS.md" ]; then
-        echo "CLAUDE.md is already a symlink to AGENTS.md"
-        echo "EDITS MADE: no"
-        exit 0
-    else
-        echo "CLAUDE.md is a symlink but points to $TARGET instead of AGENTS.md"
-        echo "Removing and recreating symlink..."
-        rm "CLAUDE.md"
-    fi
-elif [ -e "CLAUDE.md" ]; then
-    # CLAUDE.md exists but is not a symlink
-    echo "CLAUDE.md exists but is not a symlink. Removing it..."
-    rm "CLAUDE.md"
+if [ -e "$claude_path" ] && [ ! -L "$claude_path" ] && [ "$force" = false ]; then
+    echo "Error: refusing to replace regular file $claude_path without --force" >&2
+    exit 2
 fi
 
-# Create the symlink
-ln -s AGENTS.md CLAUDE.md
-echo "Created symlink: CLAUDE.md -> AGENTS.md"
-echo "EDITS MADE: yes"
+if [ -e "$claude_path" ] || [ -L "$claude_path" ]; then
+    rm "$claude_path"
+fi
+ln -s AGENTS.md "$claude_path"
+echo "APPLIED: CLAUDE.md -> AGENTS.md"

@@ -53,7 +53,7 @@ scripts/github_builds <owner> <repo> --topics
 **Exit codes for --wait:**
 - `0` - Build succeeded (all jobs passed)
 - `1` - Build failed
-- `127` - Timeout reached
+- `124` - Timeout reached
 
 ### Rerun a failed workflow
 ```bash
@@ -75,8 +75,10 @@ scripts/github_builds <owner> <repo> --run <run_id> --rerun-failed
 - `--timeout <seconds>` - Wait timeout (default: 3600)
 - `--branch <branch>` - Filter by specific branch
 - `--topics` - Show repository topics (tags)
+- `--format text|json` - Select human-readable or structured output
+- `--output-dir <path>` - Select the base directory for downloaded logs
 
-## Instructions for Claude
+## Workflow
 
 When the user asks about GitHub Actions builds:
 
@@ -148,7 +150,7 @@ fi
 
 ## Configuration
 
-**Authentication:** Token configured in script
+**Authentication:** Set `GITHUB_TOKEN` in the environment. The command parses `--help` and validates arguments before checking credentials.
 
 The token needs these scopes:
 - `repo` - For private repositories

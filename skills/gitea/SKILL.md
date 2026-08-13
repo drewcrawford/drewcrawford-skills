@@ -51,7 +51,7 @@ scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait
 **Exit codes for --wait:**
 - `0` - Build succeeded (all jobs passed)
 - `1` - Build failed, was cancelled, or remained queued without a runner
-- `127` - Timeout reached
+- `124` - Timeout reached
 
 ### Rerun a failed workflow
 ```bash
@@ -78,8 +78,10 @@ scripts/gitea_builds.py <owner> <repo> --run <run_id> --rerun-job <job_id>
 - `--runner-timeout <seconds>` - Fail a queued, unassigned job after this many seconds (default: 300)
 - `--commits <limit>` - Check last N commits (default: 10)
 - `--branch <branch>` - Check specific branch
+- `--format text|json` - Select human-readable or structured output
+- `--output-dir <path>` - Select the base directory for downloaded logs
 
-## Instructions for Claude
+## Workflow
 
 When the user asks about Gitea builds:
 

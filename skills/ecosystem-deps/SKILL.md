@@ -37,6 +37,8 @@ python3 ecosystem_deps.py --crates tokio,hyper,tower [workspace_path]
 python3 ecosystem_deps.py --crates-file our-crates.txt [workspace_path]
 ```
 
+Add `--format json` when the result will be consumed programmatically.
+
 `--author`, `--crates`, and `--crates-file` are mutually exclusive. Crate
 names are `-`/`_` normalized, so either spelling works.
 

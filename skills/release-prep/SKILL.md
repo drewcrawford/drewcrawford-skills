@@ -1,7 +1,7 @@
 ---
 name: release-prep
 description: Prepare a Rust crate for release.  Use this when the user asks to prepare for a release or to do "release prep".
-compatibility: Requires a Rust toolchain, git, standard Unix command-line tools, network access, and optional gh/Gitea credentials for forge operations.
+compatibility: Requires Rust stable and nightly toolchains, cargo-public-api, git worktrees, jq, standard Unix tools, network access, and optional forge credentials.
 ---
 
 To prepare for a release, follow the files in `checklist/` relative to this skill's directory (`checklist/1.md`, `checklist/2.md`, and so on). Focus on only one step at a time because individual steps can be complex.

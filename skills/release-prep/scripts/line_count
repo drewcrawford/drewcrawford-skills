@@ -1,68 +1,62 @@
 #!/usr/bin/env python3
+"""Report oversized Rust source files."""
 
-import os
+import argparse
+import json
 import sys
 from pathlib import Path
 
-def count_lines_in_file(file_path):
-	"""Count non-empty lines in a file."""
-	try:
-		with open(file_path, 'r', encoding='utf-8') as f:
-			lines = [line.strip() for line in f.readlines()]
-			return len([line for line in lines if line])
-	except (UnicodeDecodeError, PermissionError):
-		return 0
 
-def analyze_rust_files(search_dir=".", warn_threshold=900, severe_threshold=1500):
-	"""Analyze Rust files and report line counts with warnings."""
-	search_path = Path(search_dir)
-	
-	if not search_path.exists():
-		print(f"Error: Directory '{search_dir}' does not exist")
-		return
-	
-	rust_files = [f for f in search_path.rglob("*.rs") 
-				   if 'target' not in f.parts]
-	
-	if not rust_files:
-		print(f"No .rs files found in '{search_dir}' (excluding target/)")
-		return
-	
-	total_lines = 0
-	warnings = []
-	severe_warnings = []
-	
-	print(f"Analyzing {len(rust_files)} Rust files in '{search_dir}' (excluding target/)...\n")
-	
-	for file_path in sorted(rust_files):
-		line_count = count_lines_in_file(file_path)
-		total_lines += line_count
-		
-		relative_path = file_path.relative_to(search_path)
-		
-		if line_count >= severe_threshold:
-			severe_warnings.append((relative_path, line_count))
-			print(f"🚨 SEVERE: {relative_path} - {line_count} lines")
-		elif line_count >= warn_threshold:
-			warnings.append((relative_path, line_count))
-			print(f"⚠️  WARNING: {relative_path} - {line_count} lines")
-	
-	print(f"\n📊 Summary:")
-	print(f"Total files: {len(rust_files)}")
-	print(f"Total lines: {total_lines}")
-	print(f"Warnings ({warn_threshold}+ lines): {len(warnings)}")
-	print(f"Severe warnings ({severe_threshold}+ lines): {len(severe_warnings)}")
-	
-	if severe_warnings:
-		print(f"\n🚨 Files requiring immediate attention:")
-		for file_path, line_count in severe_warnings:
-			print(f"  {file_path}: {line_count} lines")
-	
-	if warnings:
-		print(f"\n⚠️  Files to consider refactoring:")
-		for file_path, line_count in warnings:
-			print(f"  {file_path}: {line_count} lines")
+def count_lines(path: Path) -> int:
+    try:
+        return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+    except (UnicodeDecodeError, PermissionError, OSError):
+        return 0
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Report non-empty line counts for Rust source files.")
+    parser.add_argument("root", nargs="?", default=".", help="directory to inspect (default: cwd)")
+    parser.add_argument("--warn", type=int, default=900, help="warning threshold (default: 900)")
+    parser.add_argument("--severe", type=int, default=1500, help="failure threshold (default: 1500)")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
+    args = parser.parse_args(argv)
+
+    if args.warn < 1 or args.severe < args.warn:
+        parser.error("thresholds must satisfy 1 <= --warn <= --severe")
+    root = Path(args.root).resolve()
+    if not root.is_dir():
+        parser.error(f"root is not a directory: {root}")
+
+    files = sorted(path for path in root.rglob("*.rs") if "target" not in path.parts)
+    results = []
+    for path in files:
+        lines = count_lines(path)
+        severity = "severe" if lines >= args.severe else "warning" if lines >= args.warn else "ok"
+        results.append({"path": str(path.relative_to(root)), "lines": lines, "severity": severity})
+
+    warnings = [result for result in results if result["severity"] == "warning"]
+    severe = [result for result in results if result["severity"] == "severe"]
+    report = {
+        "root": str(root),
+        "files": len(files),
+        "total_nonempty_lines": sum(result["lines"] for result in results),
+        "warning_threshold": args.warn,
+        "severe_threshold": args.severe,
+        "findings": warnings + severe,
+    }
+
+    if args.format == "json":
+        print(json.dumps(report, indent=2))
+    else:
+        for result in warnings + severe:
+            print(f"{result['severity'].upper()}: {result['path']} ({result['lines']} lines)")
+        print(
+            f"Checked {report['files']} Rust files; {len(warnings)} warning(s), "
+            f"{len(severe)} severe finding(s)."
+        )
+    return 1 if severe else 0
+
 
 if __name__ == "__main__":
-	search_directory = sys.argv[1] if len(sys.argv) > 1 else "."
-	analyze_rust_files(search_directory)
+    sys.exit(main())

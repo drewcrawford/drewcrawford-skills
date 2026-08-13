@@ -196,7 +196,7 @@ Exit code: 1
 ```
 ✗ Timeout reached after 600s
 ```
-Exit code: 127
+Exit code: 124
 
 ---
 
@@ -256,7 +256,7 @@ if scripts/gitea_builds.py "$OWNER" "$REPO" --run "$BUILD_RUN_ID" --wait --timeo
 else
     exit_code=$?
 
-    if [ $exit_code -eq 127 ]; then
+    if [ $exit_code -eq 124 ]; then
         echo "✗ Build timed out after 30 minutes"
     else
         echo "✗ Build failed, not deploying"

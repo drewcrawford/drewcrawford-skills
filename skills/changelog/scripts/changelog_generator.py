@@ -510,30 +510,45 @@ def main():
 
     elif args.action == 'update':
         content = generator.generate(args.since, args.until, args.version)
-        if generator.update_file(args.file, content, args.version or generator.get_latest_tag()):
-            print(f"Successfully updated {args.file}")
+        success = generator.update_file(args.file, content, args.version or generator.get_latest_tag())
+        if success:
+            if args.format == 'json':
+                print(json.dumps({"action": "update", "file": args.file, "success": True}))
+            else:
+                print(f"Successfully updated {args.file}")
         else:
+            if args.format == 'json':
+                print(json.dumps({"action": "update", "file": args.file, "success": False}))
             print("Failed to update changelog", file=sys.stderr)
-            sys.exit(1)
+            return 1
 
     elif args.action == 'suggest-version':
         commits = generator.get_commits(args.since, args.until, args.limit)
         grouped = generator.group_commits(commits)
         current = generator.get_latest_tag()
         suggested = generator.suggest_version(current, grouped)
-        print(f"Current version: {current}")
-        print(f"Suggested version: {suggested}")
-
         # Explain why
         if "BREAKING" in grouped:
-            print("Reason: Breaking changes detected")
+            reason = "Breaking changes detected"
         elif "Added" in grouped:
-            print("Reason: New features added")
+            reason = "New features added"
         elif "Security" in grouped:
-            print("Reason: Security fixes (recommend minor bump)")
+            reason = "Security fixes (recommend minor bump)"
         else:
-            print("Reason: Bug fixes and minor changes only")
+            reason = "Bug fixes and minor changes only"
+        if args.format == 'json':
+            print(json.dumps({
+                "action": "suggest-version",
+                "current_version": current,
+                "suggested_version": suggested,
+                "reason": reason,
+            }, indent=2))
+        else:
+            print(f"Current version: {current}")
+            print(f"Suggested version: {suggested}")
+            print(f"Reason: {reason}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

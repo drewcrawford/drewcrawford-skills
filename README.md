@@ -51,7 +51,7 @@ after `git pull` to update.
 * **changelog** — generates release notes from git history with a five-level
   voice dial, from just-the-facts to Slack-release-notes chipper.
 * **github** / **gitea** — CI monitors for both forges: full Python API
-  clients with change-detection polling, per-job log retrieval, and a 0/1/127
+  clients with change-detection polling, per-job log retrieval, and a 0/1/124
   exit-code contract so they compose into shell deploy gates.
 * **ecosystem-deps** — topological release ordering for any family of crates
   a workspace depends on, via Tarjan's SCC over a hand-parsed Cargo.lock.

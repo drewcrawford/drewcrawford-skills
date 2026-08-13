@@ -1,62 +1,88 @@
 #!/usr/bin/env python3
+"""Check or add SPDX headers to Rust source files."""
 
-import os
+import argparse
+import json
 import sys
+from pathlib import Path
 
-def find_spdx_line(lib_rs_path):
-    with open(lib_rs_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            if line.strip().startswith('// SPDX-License-Identifier:'):
-                return line.rstrip('\n')
+
+def find_project_spdx(root: Path):
+    for relative in ("lib.rs", "src/lib.rs", "src/main.rs"):
+        candidate = root / relative
+        if not candidate.is_file():
+            continue
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("// SPDX-License-Identifier:"):
+                return line.strip()
     return None
 
-def main():
-    root = os.getcwd()
-    lib_rs_path = os.path.join(root, "lib.rs")
-    src_lib_rs_path = os.path.join(root, "src", "lib.rs")
-    src_main_rs_path = os.path.join(root, "src", "main.rs")
-    
-    # Check for lib.rs in root first, then src/lib.rs, then src/main.rs
-    if os.path.exists(lib_rs_path):
-        spdx_source = lib_rs_path
-    elif os.path.exists(src_lib_rs_path):
-        spdx_source = src_lib_rs_path
-    elif os.path.exists(src_main_rs_path):
-        spdx_source = src_main_rs_path
-    else:
-        print("Error: No lib.rs or main.rs found in root directory or src/ directory.")
-        sys.exit(1)
-    spdx_line = find_spdx_line(spdx_source)
+
+def has_spdx(lines):
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#!"):
+            continue
+        return stripped.startswith("// SPDX-License-Identifier:")
+    return False
+
+
+def insert_spdx(lines, spdx_line):
+    index = 0
+    while index < len(lines) and (not lines[index].strip() or lines[index].strip().startswith("#!")):
+        index += 1
+    return lines[:index] + [spdx_line + "\n"] + lines[index:]
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Check SPDX headers; use --apply to add missing headers.")
+    parser.add_argument("root", nargs="?", default=".", help="crate directory (default: cwd)")
+    parser.add_argument("--apply", action="store_true", help="write missing headers")
+    parser.add_argument("--dry-run", action="store_true", help="explicitly select check-only mode")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
+    args = parser.parse_args(argv)
+    if args.apply and args.dry_run:
+        parser.error("--apply and --dry-run are mutually exclusive")
+
+    root = Path(args.root).resolve()
+    if not root.is_dir():
+        parser.error(f"root is not a directory: {root}")
+    spdx_line = find_project_spdx(root)
     if not spdx_line:
-        print(f"Error: No SPDX-License-Identifier found in {spdx_source}.")
-        sys.exit(1)
+        print("Error: no SPDX-License-Identifier found in lib.rs, src/lib.rs, or src/main.rs.", file=sys.stderr)
+        return 2
 
-    for dirpath, dirnames, filenames in os.walk(root):
-        # Skip target and .build directories
-        if 'target' in dirnames:
-            dirnames.remove('target')
-        if '.build' in dirnames:
-            dirnames.remove('.build')
-        for filename in filenames:
-            if filename.endswith('.rs'):
-                file_path = os.path.join(dirpath, filename)
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
+    rust_files = sorted(
+        path for path in root.rglob("*.rs")
+        if "target" not in path.parts and ".build" not in path.parts
+    )
+    missing = []
+    for path in rust_files:
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        if not has_spdx(lines):
+            missing.append(path)
+            if args.apply:
+                path.write_text("".join(insert_spdx(lines, spdx_line)), encoding="utf-8")
 
-                # Find the first non-empty, non-shebang line
-                for idx, line in enumerate(lines):
-                    line_strip = line.strip()
-                    if line_strip == '' or line_strip.startswith('#!'):
-                        continue
-                    if line_strip.startswith('// SPDX-License-Identifier:'):
-                        break
-                    # If not present, insert SPDX line above this
-                    print(f"Adding SPDX license to {file_path}")
-                    lines.insert(idx, spdx_line + '\n')
-                    with open(file_path, 'w', encoding='utf-8') as f:
-                        f.writelines(lines)
-                    break
+    report = {
+        "root": str(root),
+        "spdx": spdx_line,
+        "mode": "apply" if args.apply else "check",
+        "missing": [str(path.relative_to(root)) for path in missing],
+        "changed": len(missing) if args.apply else 0,
+    }
+    if args.format == "json":
+        print(json.dumps(report, indent=2))
+    elif missing:
+        verb = "Added" if args.apply else "Missing"
+        for path in report["missing"]:
+            print(f"{verb}: {path}")
+        if not args.apply:
+            print("Run again with --apply to add these headers.")
+    else:
+        print(f"All {len(rust_files)} Rust files have SPDX headers.")
+    return 0 if args.apply or not missing else 1
+
 
 if __name__ == "__main__":
-    main()
-
+    sys.exit(main())

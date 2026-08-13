@@ -6,12 +6,15 @@ This script connects to a Gitea instance and lists recent build jobs
 for a specified repository, showing their status and relevant IDs.
 """
 
+import argparse
+import json
 import requests
 import sys
 import re
 import time
 import os
 from datetime import datetime, timezone
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 from collections import defaultdict
@@ -126,6 +129,8 @@ def parse_cli_args(args: List[str]) -> Dict[str, object]:
         'rerun_job_id': None,
         'timeout': 3600,
         'runner_timeout': DEFAULT_RUNNER_TIMEOUT,
+        'format': 'text',
+        'output_dir': 'logs',
     }
     value_options = {
         '--run': ('run_id', int),
@@ -134,6 +139,8 @@ def parse_cli_args(args: List[str]) -> Dict[str, object]:
         '--rerun-job': ('rerun_job_id', int),
         '--timeout': ('timeout', int),
         '--runner-timeout': ('runner_timeout', int),
+        '--format': ('format', str),
+        '--output-dir': ('output_dir', str),
     }
     flag_options = {
         '--wait': 'wait',
@@ -170,6 +177,8 @@ def parse_cli_args(args: List[str]) -> Dict[str, object]:
             raise ValueError(f'{option} must not be negative')
 
     run_id = parsed['run_id']
+    if parsed['format'] not in ('text', 'json'):
+        raise ValueError('--format must be one of: text, json')
     for enabled, option in (
         (parsed['wait'], '--wait'),
         (parsed['download_logs'], '--download-logs'),
@@ -672,7 +681,7 @@ def wait_for_run(owner: str, repo: str, run_id: int, base_url: str, timeout: int
     Returns:
         0 if run completes successfully
         1 if run completes with failures
-        127 if timeout is reached
+        124 if timeout is reached
     """
     client = client or GiteaClient(base_url, GITEA_TOKEN)
     start_time = time.time()
@@ -687,7 +696,7 @@ def wait_for_run(owner: str, repo: str, run_id: int, base_url: str, timeout: int
 
         if elapsed > timeout:
             print(f"\n✗ Timeout reached after {int(elapsed)}s")
-            return 127
+            return 124
 
         try:
             run = client.get_actions_run(owner, repo, run_id)
@@ -743,84 +752,66 @@ def wait_for_run(owner: str, repo: str, run_id: int, base_url: str, timeout: int
         iteration += 1
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Inspect and operate Gitea Actions workflow runs.",
+        epilog="Exit codes for --wait: 0 success, 1 failed/cancelled/blocked, 124 timeout.",
+    )
+    parser.add_argument("owner", help="repository owner")
+    parser.add_argument("repo", help="repository name")
+    parser.add_argument("--config", help="path to a GITEA_URL/GITEA_TOKEN settings file")
+    parser.add_argument("--run", type=int, help="workflow run database ID")
+    parser.add_argument("--wait", action="store_true", help="wait for --run to finish")
+    parser.add_argument("--download-logs", action="store_true", help="download logs for --run")
+    rerun_group = parser.add_mutually_exclusive_group()
+    rerun_group.add_argument("--rerun", action="store_true", help="rerun all jobs in --run")
+    rerun_group.add_argument("--rerun-job", type=int, metavar="JOB_ID", help="rerun one job in --run")
+    parser.add_argument("--timeout", type=int, default=3600, help="wait timeout in seconds")
+    parser.add_argument("--runner-timeout", type=int, default=DEFAULT_RUNNER_TIMEOUT,
+                        help="fail an unassigned queued job after this many seconds")
+    parser.add_argument("--commits", type=int, default=10, help="number of commits to inspect")
+    parser.add_argument("--branch", help="branch to inspect")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument("--output-dir", default="logs", help="base directory for downloaded logs")
+    return parser
+
+
+def main(argv=None):
     global GITEA_TOKEN
+
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if '-h' in raw_args or '--help' in raw_args:
+        build_parser().print_help()
+        return 0
 
     # Configuration - load the optional dotfile first, then let explicitly
     # exported environment variables take precedence.
     try:
-        config_path, args = extract_config_path(sys.argv[1:])
+        config_path, args = extract_config_path(raw_args)
+        parsed = parse_cli_args(args)
     except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+        print(f"Error: {e}", file=sys.stderr)
+        build_parser().print_usage(sys.stderr)
+        return 2
     dotfile = find_dotfile(config_path)
     if dotfile:
         try:
             for key, value in load_dotfile(dotfile).items():
                 os.environ.setdefault(key, value)
         except (OSError, ValueError) as e:
-            print(f"Error loading Gitea configuration from {dotfile}: {e}")
-            sys.exit(1)
+            print(f"Error loading Gitea configuration from {dotfile}: {e}", file=sys.stderr)
+            return 1
 
     GITEA_URL = os.environ.get("GITEA_URL")
     GITEA_TOKEN = os.environ.get("GITEA_TOKEN")
 
     if not GITEA_URL:
-        print("Error: GITEA_URL environment variable not set")
-        print("Please set it with: export GITEA_URL=https://gitea.example.com")
-        print("Or create ~/.gitea with GITEA_URL and GITEA_TOKEN settings")
-        sys.exit(1)
+        print("Error: GITEA_URL is required. Set it in the environment or config file.", file=sys.stderr)
+        return 1
 
     if not GITEA_TOKEN:
-        print("Error: GITEA_TOKEN environment variable not set")
-        print("Please set it with: export GITEA_TOKEN=your_token_here")
-        print("Or create ~/.gitea with GITEA_URL and GITEA_TOKEN settings")
-        sys.exit(1)
-
-    # Parse command line arguments
-    if len(args) < 2:
-        print("Usage: python gitea_builds.py <owner> <repo> [options]")
-        print("\nOptions:")
-        print("  --config <path>      Load settings from a dotfile")
-        print("  --run <run_id>       Use the database ID from the Actions URL")
-        print("  --wait               Wait for a run to complete (requires --run)")
-        print("  --download-logs      Download logs for all jobs in a run (requires --run)")
-        print("  --rerun              Rerun a failed workflow (requires --run)")
-        print("  --rerun-job <job_id> Rerun a specific failed job (requires --run)")
-        print("  --timeout <seconds>  Timeout for --wait (default: 3600)")
-        print("  --runner-timeout <s> Fail if no runner accepts a queued job (default: 300)")
-        print("  --commits <limit>    Number of commits to check (default: 10)")
-        print("  --branch <branch>    Check specific branch (default: repo default branch)")
-        print("\nExamples:")
-        print("  python gitea_builds.py myuser myrepo")
-        print("  python gitea_builds.py myuser myrepo --run 215")
-        print("  python gitea_builds.py myuser myrepo --run 215 --download-logs")
-        print("  python gitea_builds.py myuser myrepo --run 215 --wait")
-        print("  python gitea_builds.py myuser myrepo --run 215 --wait --timeout 1800")
-        print("  python gitea_builds.py myuser myrepo --run 215 --rerun")
-        print("  python gitea_builds.py myuser myrepo --run 215 --rerun-job 1006")
-        print("  python gitea_builds.py myuser myrepo --commits 20 --branch develop")
-        print("\nExit codes (when using --wait):")
-        print("  0   - Run completed successfully")
-        print("  1   - Run completed with failures")
-        print("  127 - Timeout reached")
-        print("\nListing your repositories:")
-        client = GiteaClient(GITEA_URL, GITEA_TOKEN)
-        try:
-            repos = client.list_repos()
-            for repo in repos[:30]:  # Limit to first 30
-                print(f"  - {repo['owner']['login']}/{repo['name']}")
-            if len(repos) > 30:
-                print(f"  ... and {len(repos) - 30} more")
-        except Exception as e:
-            print(f"Error listing repositories: {e}")
-        sys.exit(1)
-
-    try:
-        parsed = parse_cli_args(args)
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+        print("Error: GITEA_TOKEN is required. Set it in the environment or config file.", file=sys.stderr)
+        return 1
 
     owner = parsed['owner']
     repo = parsed['repo']
@@ -833,6 +824,8 @@ def main():
     rerun_job_id = parsed['rerun_job_id']
     timeout = parsed['timeout']
     runner_timeout = parsed['runner_timeout']
+    output_format = parsed['format']
+    output_dir = parsed['output_dir']
 
     # Initialize client
     client = GiteaClient(GITEA_URL, GITEA_TOKEN)
@@ -840,24 +833,42 @@ def main():
     try:
         # Handle wait mode
         if wait:
-            exit_code = wait_for_run(
-                owner, repo, run_id, GITEA_URL, timeout=timeout,
-                runner_timeout=runner_timeout, client=client,
-            )
-            sys.exit(exit_code)
+            stream = sys.stderr if output_format == 'json' else sys.stdout
+            with redirect_stdout(stream):
+                exit_code = wait_for_run(
+                    owner, repo, run_id, GITEA_URL, timeout=timeout,
+                    runner_timeout=runner_timeout, client=client,
+                )
+            if output_format == 'json':
+                print(json.dumps({"owner": owner, "repo": repo, "run_id": run_id, "exit_code": exit_code}))
+            return exit_code
 
         # Handle rerun mode
         if rerun or rerun_job_id:
-            success = rerun_workflow_by_id(client, owner, repo, run_id, job_id=rerun_job_id)
-            sys.exit(0 if success else 1)
+            stream = sys.stderr if output_format == 'json' else sys.stdout
+            with redirect_stdout(stream):
+                success = rerun_workflow_by_id(client, owner, repo, run_id, job_id=rerun_job_id)
+            if output_format == 'json':
+                print(json.dumps({"owner": owner, "repo": repo, "run_id": run_id, "job_id": rerun_job_id, "success": success}))
+            return 0 if success else 1
 
         if run_id:
-            print_run_details(client, owner, repo, run_id, GITEA_URL)
             if download_logs:
-                downloaded = download_run_logs(client, owner, repo, run_id)
+                stream = sys.stderr if output_format == 'json' else sys.stdout
+                with redirect_stdout(stream):
+                    downloaded = download_run_logs(client, owner, repo, run_id, output_dir=output_dir)
+                if output_format == 'json':
+                    print(json.dumps({"run_id": run_id, "downloaded_files": downloaded, "output_dir": output_dir}))
                 if not downloaded:
-                    sys.exit(1)
-            return
+                    return 1
+            elif output_format == 'json':
+                print(json.dumps({
+                    "run": client.get_actions_run(owner, repo, run_id),
+                    "jobs": client.get_run_jobs(owner, repo, run_id),
+                }, indent=2))
+            else:
+                print_run_details(client, owner, repo, run_id, GITEA_URL)
+            return 0
 
         # Get repository info to determine branch
         repo_info = client.get_repo_info(owner, repo)
@@ -868,18 +879,31 @@ def main():
         commits = client.list_commits(owner, repo, limit=commit_limit, branch=branch)
 
         if not commits:
-            print(f"No commits found for {owner}/{repo}")
-            sys.exit(1)
+            print(f"Error: no commits found for {owner}/{repo}", file=sys.stderr)
+            return 1
 
-        print(f"Fetching build status for {owner}/{repo} on branch '{branch}' (checking last {commit_limit} commits)...")
-        print_builds_summary(client, owner, repo, commits, branch)
+        if output_format == 'json':
+            commit_shas = {commit['sha'] for commit in commits}
+            runs = [
+                run for run in client.get_actions_runs(owner, repo)
+                if run.get('head_sha') in commit_shas and run.get('head_branch') in (None, branch)
+            ]
+            print(json.dumps({"owner": owner, "repo": repo, "branch": branch, "runs": runs}, indent=2))
+        else:
+            print(
+                f"Fetching build status for {owner}/{repo} on branch '{branch}' "
+                f"(checking last {commit_limit} commits)...",
+                file=sys.stderr,
+            )
+            print_builds_summary(client, owner, repo, commits, branch)
 
     except requests.exceptions.RequestException as e:
-        print(f"\nError: {e}")
+        print(f"Error: {e}", file=sys.stderr)
         if hasattr(e, 'response') and e.response is not None:
-            print(f"Response: {e.response.text}")
-        sys.exit(1)
+            print(f"Response: {e.response.text}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

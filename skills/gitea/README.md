@@ -59,7 +59,7 @@ scripts/gitea_builds.py myorg myrepo --run 215 --wait
 - **List builds** - View recent workflow runs with status, branch, and commit info
 - **View details** - See individual job statuses, platforms, and durations
 - **Download logs** - Download job logs from CI builds for debugging and archival
-- **Wait for completion** - Monitor builds with proper exit codes (0=success, 1=failure or runner-blocked, 127=timeout)
+- **Wait for completion** - Monitor builds with proper exit codes (0=success, 1=failure or runner-blocked, 124=timeout)
 - **Rerun workflows** - Rerun failed workflows or specific jobs with a single command *(requires Gitea 1.26+)*
 - **Branch filtering** - Check builds on specific branches
 - **CI/CD integration** - Perfect for automation scripts
@@ -101,7 +101,7 @@ scripts/gitea_builds.py <owner> <repo> --run <run_id> --wait --timeout 1800
 
 - `0` - Build completed successfully (all jobs passed)
 - `1` - Build failed, was cancelled, or remained queued without a runner
-- `127` - Timeout reached
+- `124` - Timeout reached
 
 ### Example: CI/CD Automation
 

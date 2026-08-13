@@ -78,10 +78,10 @@ The script uses standard Unix exit codes for automation:
 |-----------|---------|----------------|
 | 0 | Success | Run completed successfully (--wait mode), or rerun triggered successfully (--rerun mode), or normal list/display operation completed |
 | 1 | Failure | Run failed, was cancelled, exceeded the runner timeout, was not found, or an operation failed |
-| 127 | Timeout | --wait timeout reached before run completed |
+| 124 | Timeout | --wait timeout reached before run completed |
 
 **Mode-specific exit codes:**
-- **--wait mode:** Exit code reflects build outcome (0=success, 1=failure, 127=timeout)
+- **--wait mode:** Exit code reflects build outcome (0=success, 1=failure, 124=timeout)
 - **--rerun mode:** Exit code reflects whether rerun was triggered (0=triggered, 1=failed to trigger)
 - **Normal mode:** Exit code is 0 on successful execution or 1 on errors
 
@@ -93,7 +93,7 @@ if scripts/gitea_builds.py org repo --run 123 --wait; then
     echo "Success"
 else
     exit_code=$?
-    if [ $exit_code -eq 127 ]; then
+    if [ $exit_code -eq 124 ]; then
         echo "Timeout"
     else
         echo "Failure"
@@ -105,7 +105,7 @@ import subprocess
 result = subprocess.run(['python', 'scripts/gitea_builds.py', 'org', 'repo', '--run', '123', '--wait'])
 if result.returncode == 0:
     print("Success")
-elif result.returncode == 127:
+elif result.returncode == 124:
     print("Timeout")
 else:
     print("Failure")

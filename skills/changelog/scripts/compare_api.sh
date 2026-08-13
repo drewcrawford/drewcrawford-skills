@@ -1,132 +1,95 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
 
-# Store the original ref and stash state globally for cleanup
-ORIGINAL_REF=""
-NEEDS_POP=false
-
-# Ensure cleanup on exit
-cleanup() {
-    rm -f old.txt new.txt
-    # Restore git state if we saved a ref
-    if [ -n "$ORIGINAL_REF" ]; then
-        git checkout "$ORIGINAL_REF" --quiet 2>/dev/null || true
-    fi
-    # Pop stash if we stashed anything
-    if [ "$NEEDS_POP" = true ]; then
-        git stash pop --quiet 2>/dev/null || true
-    fi
-}
-trap cleanup EXIT
+set -euo pipefail
 
 usage() {
-    echo "Usage: $(basename "$0") [OPTIONS] [TAG]"
-    echo ""
-    echo "Compare public API between a git tag and HEAD."
-    echo ""
-    echo "Arguments:"
-    echo "  TAG                 Tag to compare against (default: most recent tag)"
-    echo ""
-    echo "Options:"
-    echo "  -h, --help          Show this help message"
-    echo "  -l, --list          List available tags"
-    echo "  --abbreviated       Omit blanket-impls, auto-trait-impls, and auto-derived-impls"
-    echo ""
-    echo "Output:"
-    echo "  old.txt             Public API at the specified tag"
-    echo "  new.txt             Public API at HEAD"
+    cat <<'EOF'
+Usage: compare_api.sh [OPTIONS] [TAG]
+
+Compare a Rust crate's public API at TAG with the current working tree without
+stashing changes or switching the user's checkout.
+
+Options:
+  --root PATH       Crate directory (default: cwd)
+  --output-dir DIR  Preserve old.txt and new.txt in DIR
+  --abbreviated     Omit blanket, auto-trait, and auto-derived implementations
+  -l, --list        List available tags and exit
+  -h, --help        Show this help and exit
+EOF
 }
 
-# Parse arguments
-ABBREVIATED=false
-TAG_ARG=""
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -h|--help)
-            usage
-            exit 0
+root=.
+output_dir=
+abbreviated=false
+tag=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --root)
+            [ "$#" -ge 2 ] || { echo "Error: --root requires a path" >&2; usage >&2; exit 2; }
+            root=$2
+            shift 2
             ;;
-        -l|--list)
-            echo "Available tags:"
-            git tag --sort=-v:refname
-            exit 0
+        --output-dir)
+            [ "$#" -ge 2 ] || { echo "Error: --output-dir requires a path" >&2; usage >&2; exit 2; }
+            output_dir=$2
+            shift 2
             ;;
-        --abbreviated)
-            ABBREVIATED=true
-            shift
-            ;;
-        -*)
-            echo "Error: Unknown option $1" >&2
-            usage >&2
-            exit 1
-            ;;
+        --abbreviated) abbreviated=true; shift ;;
+        -l|--list) git -C "$root" tag --sort=-v:refname; exit 0 ;;
+        -h|--help) usage; exit 0 ;;
+        -*) echo "Error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
         *)
-            TAG_ARG="$1"
+            [ -z "$tag" ] || { echo "Error: only one TAG may be supplied" >&2; usage >&2; exit 2; }
+            tag=$1
             shift
             ;;
     esac
 done
 
-# Build omit arguments
-if [ "$ABBREVIATED" = true ]; then
-    OMIT_ARGS="--omit blanket-impls,auto-trait-impls,auto-derived-impls"
-else
-    OMIT_ARGS="--omit blanket-impls"
+[ -d "$root" ] || { echo "Error: root is not a directory: $root" >&2; exit 2; }
+root=$(cd "$root" && pwd)
+repo_root=$(git -C "$root" rev-parse --show-toplevel)
+prefix=$(git -C "$root" rev-parse --show-prefix)
+if [ -z "$tag" ]; then
+    tag=$(git -C "$root" tag --sort=-v:refname | head -1)
+    [ -n "$tag" ] || { echo "Error: no tags found in repository" >&2; exit 1; }
 fi
+git -C "$root" rev-parse --verify "$tag^{commit}" >/dev/null 2>&1 ||
+    { echo "Error: tag or commit not found: $tag" >&2; exit 2; }
 
-# Get current branch/commit to return to
-ORIGINAL_REF=$(git rev-parse --abbrev-ref HEAD)
-if [ "$ORIGINAL_REF" = "HEAD" ]; then
-    # Already in detached HEAD; fall back to exact commit so we can restore it
-    ORIGINAL_REF=$(git rev-parse HEAD)
-fi
-CURRENT_REF="$ORIGINAL_REF"
-
-# Get tag to compare against
-if [ -n "$TAG_ARG" ]; then
-    # Verify the provided tag exists
-    if ! git rev-parse "$TAG_ARG" >/dev/null 2>&1; then
-        echo "Error: Tag '$TAG_ARG' not found" >&2
-        echo "Use -l to list available tags" >&2
-        exit 1
+temp_root=$(mktemp -d)
+worktree=$temp_root/worktree
+worktree_added=false
+cleanup() {
+    if [ "$worktree_added" = true ]; then
+        git -C "$repo_root" worktree remove --force "$worktree" >/dev/null 2>&1 || true
     fi
-    COMPARE_TAG="$TAG_ARG"
-else
-    COMPARE_TAG=$(git tag --sort=-v:refname | head -1)
-    if [ -z "$COMPARE_TAG" ]; then
-        echo "Error: No tags found in repository" >&2
-        exit 1
-    fi
+    rm -rf "$temp_root"
+}
+trap cleanup EXIT HUP INT TERM
+
+git -C "$repo_root" worktree add --detach "$worktree" "$tag" >/dev/null
+worktree_added=true
+old_root=${worktree}/${prefix%/}
+old_root=${old_root%/}
+old_file=$temp_root/old.txt
+new_file=$temp_root/new.txt
+
+omit=(--omit blanket-impls)
+if [ "$abbreviated" = true ]; then
+    omit=(--omit blanket-impls,auto-trait-impls,auto-derived-impls)
 fi
 
-echo "Comparing $COMPARE_TAG to $CURRENT_REF..."
+echo "Building public API at $tag..." >&2
+(cd "$old_root" && cargo public-api "${omit[@]}") >"$old_file"
+echo "Building public API from the current working tree..." >&2
+(cd "$root" && cargo public-api "${omit[@]}") >"$new_file"
 
-# Stash any current changes
-STASH_RESULT=$(git stash push -m "public-api-compare" 2>&1 || true)
-NEEDS_POP=false
-if [[ ! "$STASH_RESULT" =~ "No local changes" ]]; then
-    NEEDS_POP=true
+if [ -n "$output_dir" ]; then
+    mkdir -p "$output_dir"
+    cp "$old_file" "$output_dir/old.txt"
+    cp "$new_file" "$output_dir/new.txt"
+    echo "Saved comparison inputs to $output_dir" >&2
 fi
 
-# Checkout the tag and generate old API
-git checkout "$COMPARE_TAG" --quiet
-cargo public-api $OMIT_ARGS > old.txt
-
-# Return to original ref (branch name or commit)
-git checkout "$CURRENT_REF" --quiet
-# Clear ORIGINAL_REF since we've successfully restored
-ORIGINAL_REF=""
-
-# Pop stash if we stashed anything
-if [ "$NEEDS_POP" = true ]; then
-    git stash pop --quiet
-    NEEDS_POP=false
-fi
-
-# Generate new API
-cargo public-api $OMIT_ARGS > new.txt
-
-# Show diff but don't fail script if there are differences
-diff old.txt new.txt || true
-
-# Cleanup happens automatically via trap
+diff -u "$old_file" "$new_file" || true
