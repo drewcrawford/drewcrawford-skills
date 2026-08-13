@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write Like a Human"
+  short_description: "Make prose natural, specific, and credible"
+  default_prompt: "Use $write-like-a-human to revise this draft into natural, specific prose without changing its meaning."

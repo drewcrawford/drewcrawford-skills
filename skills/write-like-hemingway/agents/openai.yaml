@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write Like Hemingway"
+  short_description: "Write with clarity, brevity, and force"
+  default_prompt: "Use $write-like-hemingway to revise this draft in clear, direct, economical prose."
