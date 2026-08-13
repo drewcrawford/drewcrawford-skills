@@ -1,54 +1,34 @@
 ---
-name: skill-name-here
-description: Brief description of what this skill does and when to use it. Include trigger keywords and use cases.
+name: skill-name
+description: Use this skill when the user needs [outcome] in [specific contexts], including [implicit or adjacent phrasing that should trigger it]. It [key capabilities]. Do not use it for [important near-miss boundary, only if needed].
 ---
 
-# Skill Title
+# [Skill title]
 
-One-line summary of the skill's purpose.
+[One sentence stating the operational goal and the non-obvious value this skill adds.]
 
-## Overview
+## Load supporting material
 
-Brief explanation of what this skill enables and why it's useful.
+- Read `[references/relevant.md]` when [specific condition].
+- Run `[scripts/tool.py]` when [specific condition].
 
-## Core Functionality
+Delete this section if the skill has no resources. Do not use a generic “see references” instruction.
 
-### Feature One
-Description of the first main feature.
+## Workflow
 
-### Feature Two
-Description of the second main feature.
+1. [Inspect the concrete input or source of truth.]
+2. [Apply the preferred procedure and its decision rule.]
+3. [Validate the result with a script, command, or observable criteria.]
+4. [Repair failures and repeat validation before delivery.]
 
-## Usage
+## Gotchas
 
-Step-by-step instructions for using this skill:
+- [Concrete fact the agent would reasonably get wrong without being told.]
+- [Safety constraint or boundary that changes the procedure.]
 
-1. First step
-2. Second step
-3. Third step
+Delete generic reminders and unused sections. Add a compact output template only when the output shape matters.
 
-## Examples
+## Completion checks
 
-### Example 1: Basic Usage
-```
-Code or command example
-```
-
-### Example 2: Advanced Usage
-```
-More complex example
-```
-
-## Best Practices
-
-- Key recommendation 1
-- Key recommendation 2
-- Key recommendation 3
-
-## Troubleshooting
-
-### Common Issue 1
-Solution or workaround.
-
-### Common Issue 2
-Solution or workaround.
+- [ ] [Objective result condition]
+- [ ] [Validation or safety condition]

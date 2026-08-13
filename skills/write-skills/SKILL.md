@@ -1,207 +1,127 @@
 ---
 name: write-skills
-description: Create and write portable Agent Skills. Use when the user asks to write a skill, create a new skill, design a skill for a specific task such as scripts or APIs, structure SKILL.md files, improve skill metadata, or troubleshoot skill activation across compatible agents.
+description: Create, revise, and evaluate portable Agent Skills. Use this skill whenever the user wants to author or improve a skill, SKILL.md, skill metadata or triggering, bundled scripts/references/assets, progressive disclosure, validation, or skill evals—even if they only ask to capture a repeatable workflow or turn recent work into reusable agent guidance.
 ---
 
-# Skill Writer
+# Write Agent Skills
 
-Expert guidance for creating portable Agent Skills that extend compatible agents through modular, discoverable capabilities.
+Create lean, portable skills grounded in real expertise and verified by execution. A skill is valuable when it gives an agent knowledge, procedures, or reusable resources it would otherwise lack.
 
-## Core Concepts
+## Start by loading the right guidance
 
-Skills are model-invoked capabilities that Claude autonomously activates based on context. Unlike slash commands requiring explicit invocation, skills trigger automatically when Claude recognizes relevant scenarios.
+- Read [references/specification.md](references/specification.md) for exact format rules, optional fields, portability, installation, or validation questions.
+- Read [references/authoring.md](references/authoring.md) when choosing scope, organizing a large skill, or turning source material and corrections into instructions.
+- Read [references/evaluation.md](references/evaluation.md) when creating trigger tests, comparing a skill with a baseline, grading outputs, or iterating on an existing skill.
+- Read [references/scripts.md](references/scripts.md) before adding or reviewing a bundled script.
+- Use [templates/basic-skill.md](templates/basic-skill.md) as a starting scaffold, then replace every placeholder and remove every section the skill does not need.
 
-## Skill Structure
+Do not read every reference by default. Load only what the task requires.
 
-Every skill requires this directory structure:
-```
-skill-name/
-├── SKILL.md (required - main instructions)
-├── reference.md (optional - detailed technical docs)
-├── examples.md (optional - usage demonstrations)
-├── scripts/ (optional - utility scripts)
-└── templates/ (optional - reusable templates)
-```
+## Authoring workflow
 
-## Writing SKILL.md
+### 1. Ground the skill in evidence
 
-### Required Frontmatter
-```yaml
----
-name: lowercase-with-hyphens  # Max 64 chars, no spaces
-description: What it does and when to use it  # Max 1024 chars
----
-```
+Inspect the current skill and all relevant bundled files before editing it. Gather concrete examples from one or more of these sources:
 
-### Name Requirements
-- Lowercase letters, numbers, hyphens only
-- No spaces or underscores
-- Maximum 64 characters
-- Must be unique within scope
+- a real task completed with the user;
+- user corrections, preferences, and failure reports;
+- project runbooks, schemas, API specifications, code, issues, and review comments;
+- execution traces and outputs from earlier uses of the skill.
 
-### Description Best Practices
-Write descriptions that are **specific** and include:
-1. **Capabilities**: What the skill does
-2. **Trigger terms**: Keywords users would mention
-3. **Use cases**: When to activate
+Extract the reusable procedure, non-obvious facts, input/output contracts, and recurring failure modes. Do not manufacture a generic “best practices” skill from model knowledge alone when real source material is available.
 
-**Good Example:**
-> "Extract text and tables from PDF files, fill forms, merge documents. Use when working with PDF files or when the user mentions PDFs, forms, or document extraction."
+### 2. Define a coherent boundary
 
-**Bad Example:**
-> "Helps with documents"
+Write down representative requests that should trigger the skill and adjacent requests that should not. Scope the skill like a well-designed function: broad enough to complete one coherent unit of work, but narrow enough to activate precisely and compose with other skills.
 
-### Leave permissions to the client
+Ask only for missing information that would materially change the result. For an existing skill, preserve working behavior unless the user asks to change it.
 
-Omit the experimental `allowed-tools` field. Tool names and permission
-semantics differ between clients, and modern clients can classify each tool
-call using the full execution context. Describe the required operations and
-dependencies in the instructions and `compatibility` metadata instead.
+### 3. Plan reusable contents
 
-## Content Guidelines
+For each representative request, imagine performing it from scratch. Bundle only resources that remove repeated work or supply information the agent would not otherwise know:
 
-### Keep Focused Scope
-- One capability per skill
-- Split broad functionality across multiple skills
-- Clear boundaries prevent activation conflicts
+- `scripts/` for deterministic, fragile, or repeatedly re-created logic;
+- `references/` for detailed knowledge loaded only in relevant situations;
+- `assets/` for templates, images, data, or boilerplate used in produced output;
+- another clearly named directory when it better describes the content.
 
-### Structure Content Progressively
-1. **Overview**: Brief capability summary
-2. **Instructions**: Step-by-step guidance
-3. **Examples**: Concrete demonstrations
-4. **Reference**: Link to detailed docs if needed
+Keep the skill directory self-contained. Do not add process diaries, changelogs, installation guides, or user documentation that the executing agent does not need.
 
-### Writing Clear Instructions
-- Use imperative mood ("Create", "Check", "Validate")
-- Number sequential steps
-- Include error handling guidance
-- Specify output formats
-- Note dependencies or prerequisites
+### 4. Write specification-compliant metadata
 
-## Skill Locations
+Create a directory whose name exactly matches the `name` field. Use a 1–64 character name made only of lowercase ASCII letters, digits, and single hyphens; do not start or end with a hyphen.
 
-The Agent Skills specification defines the contents of a skill, not where it
-must be installed. The cross-client convention is:
+Treat `description` as the skill's trigger classifier:
 
-- **Personal**: `~/.agents/skills/skill-name/`
-- **Project**: `.agents/skills/skill-name/`
+- use imperative phrasing such as “Use this skill when…”;
+- describe the user's intent and the outcomes the skill supports, not its internal implementation;
+- include implicit phrasings and important file types, systems, or task contexts;
+- state a narrow exclusion when a nearby skill or ordinary capability is an easy false positive;
+- keep it concise and under 1024 characters.
 
-Clients may also scan native locations such as `~/.claude/skills/` or bundle
-skills in plugins. Project skills normally override personal skills when names
-conflict, but exact precedence is client-specific.
+Put all activation guidance in `description`; the body is unavailable until after activation. Use only specification-defined optional frontmatter fields when they add value. Omit experimental `allowed-tools` in portable skills because syntax and permission semantics vary by client.
 
-## Installing Skills
+### 5. Write only high-value instructions
 
-### Installing Personal Skills
+Assume the agent is capable. Include project- or domain-specific procedures, decisive defaults, concrete gotchas, and validation criteria; omit textbook background and vague reminders.
 
-Personal skills are available across all projects. Install portable personal
-skills in `~/.agents/skills/`:
+- Use imperative steps and favor procedures that generalize over answers to one example.
+- Give a default approach and a brief escape hatch instead of an equal-weight menu.
+- Explain why when the agent should adapt its judgment.
+- Be exact when ordering, safety, or consistency is fragile.
+- Put high-frequency, non-obvious gotchas in `SKILL.md` so they are always seen.
+- Provide a short output template when format matters.
+- Use checklists for dependent multi-step work.
+- For destructive or batch operations, require plan → validate against a source of truth → execute.
+- Require work → validate → repair loops when a mechanical or reference-based check exists.
+
+Keep `SKILL.md` below 500 lines and, preferably, 5,000 tokens. Move conditional detail into focused reference files. Link each resource directly from `SKILL.md` and say exactly when to load or run it. Avoid reference chains more than one level deep.
+
+### 6. Make bundled scripts agent-friendly
+
+Test every added or changed script. Prefer a pinned one-off command when it is genuinely simple; bundle a script when the command is complex or logic recurs.
+
+Require non-interactive input, concise `--help`, actionable errors, meaningful exit codes, safe/idempotent defaults, and structured stdout with diagnostics on stderr. Add `--dry-run` or an explicit confirmation flag for destructive/stateful behavior, and bound or paginate large output. See [references/scripts.md](references/scripts.md) for the complete checklist.
+
+### 7. Validate structure and links
+
+From this skill's directory, run:
 
 ```bash
-mkdir -p ~/.agents/skills
-cp -R /path/to/skill-name ~/.agents/skills/
+python3 scripts/validate_skill.py /path/to/skill
 ```
 
-If a client does not scan the shared directory, link the canonical copy into
-its native directory. For Claude Code:
+Fix every error. Review warnings rather than blindly suppressing them. When the official reference validator is available, also run:
 
 ```bash
-mkdir -p ~/.claude/skills
-ln -s ~/.agents/skills/skill-name ~/.claude/skills/skill-name
+skills-ref validate /path/to/skill
 ```
 
-### Installing Project Skills
+Exercise each bundled script with representative valid and invalid input. Confirm referenced files exist and paths are relative to the skill root.
 
-Project skills are specific to a single project:
-```bash
-mkdir -p .agents/skills
-cp -R /path/to/skill-name .agents/skills/
-```
+### 8. Evaluate behavior when the skill is consequential
 
-### Verifying Installation
+For a small skill, manually try a few realistic positive and near-miss negative prompts. For an important or complex skill, use the workflow in [references/evaluation.md](references/evaluation.md):
 
-After installing, verify the skill is discoverable:
-1. Ask the agent: "What skills are available?"
-2. Test activation with a relevant query
-3. Use the client's skill listing or debug mode to check discovery errors
+1. Measure trigger accuracy separately from output quality.
+2. Run realistic tasks in clean contexts with the skill and against a no-skill or previous-version baseline.
+3. Add objective assertions after inspecting first-run outputs.
+4. Grade with concrete evidence and blind holistic comparison where useful.
+5. Inspect traces, time, and token costs—not only final answers.
+6. Generalize fixes, rerun the complete set, and stop when gains plateau.
 
-## Common Skill Patterns
+Do not leak the intended answer, diagnosis, or previous run state into clean-context evaluations.
 
-### API Integration Skill
-```yaml
----
-name: api-client
-description: Interact with XYZ API for data retrieval and submission. Use when user mentions XYZ service, API operations, or needs to fetch/post data.
----
-```
+## Completion checklist
 
-### Data Processing Skill
-```yaml
----
-name: data-analyzer
-description: Analyze CSV, JSON, and Excel files for patterns, statistics, and visualizations. Use for data analysis, statistical operations, or when user mentions spreadsheets.
----
-```
+- [ ] The skill encodes real, non-obvious expertise.
+- [ ] The folder and `name` match and satisfy the specification.
+- [ ] The description says what the skill enables and when to use it.
+- [ ] The scope has realistic positive and near-miss negative examples.
+- [ ] `SKILL.md` is lean; conditional detail is explicitly routed to resources.
+- [ ] Instructions provide defaults, gotchas, safety gates, and validation where needed.
+- [ ] Bundled scripts are non-interactive, safe, documented, and tested.
+- [ ] Local validation passes; the official validator passes when available.
+- [ ] Behavioral testing shows an improvement over the relevant baseline.
 
-### Automation Skill
-```yaml
----
-name: build-automator
-description: Automate build processes, CI/CD pipelines, and deployment workflows. Use when setting up automation, build scripts, or continuous integration.
----
-```
-
-## Testing Skills
-
-### Verification Steps
-1. Check skill discovery: Ask "What skills are available?"
-2. Test activation with matching queries
-3. Verify tool restrictions work correctly
-4. Validate script execution permissions
-
-### Claude Code Debug Mode
-
-For Claude Code specifically, use its debug flag for detailed logs:
-```bash
-claude --debug
-```
-
-## Troubleshooting
-
-### Skill Not Activating
-- Verify description includes specific trigger terms
-- Check YAML syntax (proper `---` markers, no tabs)
-- Ensure file path is correct
-- Validate name follows requirements
-
-### Multiple Skills Conflicting
-- Use distinct, specific trigger terms
-- Narrow scope of each skill
-- Consider combining if overlap is unavoidable
-
-### Scripts Not Working
-- Set execute permissions: `chmod +x scripts/*.py`
-- Use forward slashes in paths
-- Verify required packages installed
-- Test scripts independently first
-
-## Best Practices Summary
-
-1. **Be Specific**: Clear descriptions with trigger keywords
-2. **Stay Focused**: One capability per skill
-3. **Progressive Disclosure**: Load reference files only when needed
-4. **Test Thoroughly**: Verify activation and functionality
-5. **Document Well**: Include examples and edge cases
-6. **Version Control**: Track project skills in git
-7. **Tool Restrictions**: Limit permissions when appropriate
-
-## Creating Your Skill
-
-When asked to create a skill:
-1. Identify the core capability and use cases
-2. Choose a descriptive, lowercase-hyphenated name
-3. Write a specific description with trigger terms
-4. Structure content progressively in SKILL.md
-5. Add examples if behavior is complex
-6. Include scripts/templates for reusable components
-7. Test activation with relevant queries
+Report what changed, what was validated, and any behavior that still needs a real-world or client-specific test.

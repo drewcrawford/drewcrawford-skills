@@ -1,0 +1,10 @@
+[
+  {
+    "query": "A realistic prompt that should activate the skill, including context and an indirect phrasing.",
+    "should_trigger": true
+  },
+  {
+    "query": "A realistic near-miss prompt that shares vocabulary but needs an adjacent capability.",
+    "should_trigger": false
+  }
+]

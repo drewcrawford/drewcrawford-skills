@@ -1,0 +1,15 @@
+{
+  "skill_name": "skill-name",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "A realistic user request with concrete context, inputs, and desired outcome.",
+      "expected_output": "A human-readable description of successful behavior and artifacts.",
+      "files": [],
+      "assertions": [
+        "An objective and observable requirement",
+        "A second requirement that distinguishes useful output from a superficial answer"
+      ]
+    }
+  ]
+}
