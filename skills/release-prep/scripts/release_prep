@@ -737,16 +737,78 @@ check_classification = judgment(
     "only if the project has actually moved.",
 )
 
-check_traits = judgment(
-    "traits",
-    "public types need a trait audit",
-    "List the public API (`scripts/compare_api.sh`) and, for each type, ask whether "
-    "it should implement Debug, Clone, Copy, PartialEq/Eq, Hash, Default, Display, "
-    "From/Into, AsRef/AsMut, Deref/DerefMut, or Error; whether Send/Sync/!Unpin are "
-    "worth guaranteeing; and whether every public enum is #[non_exhaustive] or "
-    "documented as deliberately exhaustive. Also confirm no public type is "
-    "unnameable — reachable through a public signature but never exported.",
+TRAIT_PROMPT = (
+    "Decide each of these. Then, for the types not listed, consider by hand whether "
+    "Clone, Copy, PartialEq/Eq, Default, Display, From/Into, AsRef/AsMut, or "
+    "Deref/DerefMut belong, and whether Send/Sync/!Unpin are worth guaranteeing — "
+    "those depend on what the type means and cannot be decided mechanically. An "
+    "exhaustive enum or a missing Hash may well be deliberate; if it is, say so in "
+    "the type's documentation so the next audit does not re-litigate it."
 )
+
+
+def check_traits(ctx):
+    """Flag what can be decided from the public API, and only ask about the rest.
+
+    Reading several hundred API items to notice one missing `Debug` is exactly
+    the work a model does poorly and a parser does perfectly — a previous audit
+    of this kind reported that every public type implemented Debug while five
+    did not.
+    """
+    if not ctx.args.slow:
+        return Finding("traits", SKIP, "re-run with --slow to audit the public API")
+    if run(["cargo", "public-api", "--version"], ctx.root).returncode != 0:
+        return Finding("traits", SKIP, "cargo-public-api is not installed", ["cargo install cargo-public-api"])
+
+    hard, soft = [], []
+    for pkg in ctx.publishable():
+        out = run(["cargo", "public-api", "-p", pkg["name"], "--omit", "blanket-impls"], ctx.root, timeout=1800)
+        if out.returncode != 0:
+            continue
+        h, s = audit_api(pkg["name"], out.stdout.splitlines())
+        hard += h
+        soft += s
+    if hard:
+        return Finding("traits", FAIL, f"{len(hard)} public-API defect(s)", hard + soft, prompt=TRAIT_PROMPT)
+    if soft:
+        return Finding("traits", JUDGMENT, f"{len(soft)} type(s) to consider", soft, prompt=TRAIT_PROMPT)
+    return Finding("traits", PASS, "no mechanical trait defects; a manual pass is still worthwhile")
+
+
+def audit_api(crate, lines):
+    """Split `cargo public-api` output into decided defects and open questions."""
+    decls, impls, referenced = {}, {}, set()
+    for line in lines:
+        m = re.match(r"^(?:(#\[[^\]]+\]) )?pub (struct|enum|union|trait) ([\w:]+)", line)
+        if m:
+            decls[m.group(3)] = {"attrs": m.group(1) or "", "kind": m.group(2)}
+            continue
+        m = re.match(r"^impl(?:<[^>]*>)? ([\w:]+)(?:<[^>]*>)? for ([\w:]+)", line)
+        if m:
+            impls.setdefault(m.group(2), set()).add(m.group(1).split("::")[-1])
+            continue
+        if line.startswith("pub "):
+            for groups in re.findall(r"\(([^)]*)\)|-> ([\w:]+)|: ([\w:]+)", line):
+                for tok in re.findall(rf"{crate}::[\w:]+", " ".join(g for g in groups if g)):
+                    referenced.add(tok)
+
+    hard, soft = [], []
+    for name, info in decls.items():
+        traits = impls.get(name, set())
+        # A trait is not a value, so it has nothing to format.
+        if info["kind"] != "trait" and "Debug" not in traits:
+            hard.append(f"{name}: no Debug impl")
+        if name.rsplit("::", 1)[-1].endswith("Error") and "Error" not in traits:
+            hard.append(f"{name}: named like an error but does not implement Error")
+        if info["kind"] == "enum" and "non_exhaustive" not in info["attrs"]:
+            soft.append(f"{name}: public enum is not #[non_exhaustive] — deliberate?")
+        if "Eq" in traits and "Hash" not in traits:
+            soft.append(f"{name}: Eq without Hash, so it cannot key a map — deliberate?")
+    for ref in sorted(referenced - set(decls)):
+        # `Foo::Bar` is a variant of a declared type, not a type of its own.
+        if ref.rsplit("::", 1)[0] not in decls:
+            hard.append(f"{ref}: reachable through the public API but never exported")
+    return hard, soft
 
 check_documentation = judgment(
     "documentation",
