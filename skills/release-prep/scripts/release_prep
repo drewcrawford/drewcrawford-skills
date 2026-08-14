@@ -1,0 +1,867 @@
+#!/usr/bin/env python3
+"""Run the mechanical half of release prep and report what still needs judgment.
+
+Most of a release checklist is not a judgment call: a grep, an exit code, or a
+path that does or does not exist decides it. Those checks belong here, where
+they cost seconds and can be re-run for free, rather than in an agent that
+spends tens of thousands of tokens rediscovering how to run `grep`.
+
+What is left over — is this documentation accurate, does this changelog read
+well, is this the right set of categories — genuinely needs a model, so each
+check that cannot decide on its own emits a prompt naming the work instead of
+guessing.
+
+Exit status is 0 when nothing needs attention and 1 when something does, so
+this doubles as a gate.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import date
+from pathlib import Path
+
+SKILL_DIR = Path(__file__).resolve().parent.parent
+BUNDLED = SKILL_DIR / "scripts"
+
+PASS, FAIL, JUDGMENT, SKIP = "pass", "fail", "judgment", "skip"
+
+# Editions map to the oldest toolchain that can build them, except that no
+# toolchain older than 1.49 is published for aarch64-apple-darwin — so the
+# pre-2021 rows carry that floor rather than their true one, and `cargo msrv`
+# has somewhere to start bisecting from.
+EDITION_FLOOR = {"2015": "1.49", "2018": "1.49", "2021": "1.56", "2024": "1.85"}
+REQUIRED_EDITION = "2024"
+
+# Extensions that a browser plays rather than draws. GitHub will not render one
+# through markdown image syntax, so the two sides of a doc carry different files.
+VIDEO_EXT = {".mp4", ".webm", ".mov"}
+
+
+class Finding:
+    """One check's verdict, plus enough context to act on it."""
+
+    def __init__(self, check, status, summary, detail=None, prompt=None, fix=None):
+        self.check = check
+        self.status = status
+        self.summary = summary
+        self.detail = detail or []
+        self.prompt = prompt
+        self.fix = fix
+
+    def as_dict(self):
+        return {
+            "check": self.check,
+            "status": self.status,
+            "summary": self.summary,
+            "detail": self.detail,
+            "prompt": self.prompt,
+            "fix": self.fix,
+        }
+
+
+class Ctx:
+    """Everything the checks share: the repo, its cargo metadata, and options."""
+
+    def __init__(self, root, args):
+        self.root = root
+        self.args = args
+        self._metadata = None
+
+    @property
+    def metadata(self):
+        if self._metadata is None:
+            out = run(["cargo", "metadata", "--no-deps", "--format-version", "1"], self.root)
+            self._metadata = json.loads(out.stdout) if out.returncode == 0 else {"packages": []}
+        return self._metadata
+
+    @property
+    def packages(self):
+        return self.metadata.get("packages", [])
+
+    def publishable(self):
+        """Packages that will actually be uploaded (`publish = false` opts out)."""
+        return [p for p in self.packages if p.get("publish") != []]
+
+    def rust_files(self):
+        for path in sorted(self.root.rglob("*.rs")):
+            if any(part in ("target", ".git") for part in path.parts):
+                continue
+            yield path
+
+    def workspace_rust_files(self):
+        """Only the source of packages cargo actually knows about.
+
+        Examples and detached shim workspaces are excluded from the metadata, so
+        this is what ships — which is the right scope for anything that judges
+        the released artifact rather than the repository.
+        """
+        roots = [Path(p["manifest_path"]).parent for p in self.packages]
+        for path in self.rust_files():
+            if not any(str(path).startswith(str(r) + os.sep) for r in roots):
+                continue
+            # A `#[cfg(test)]` module and an integration test are not part of
+            # the documented surface.
+            if path.name in ("tests.rs", "build.rs") or "tests" in path.parts:
+                continue
+            yield path
+
+    def repo_slug(self):
+        """`owner/name` from the manifest's repository field, if it is a GitHub URL."""
+        for pkg in self.packages:
+            repo = pkg.get("repository") or ""
+            m = re.match(r"https://github\.com/([^/]+)/([^/.]+)", repo)
+            if m:
+                return m.group(1), m.group(2)
+        return None
+
+
+def run(cmd, cwd, timeout=None):
+    return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+
+
+def git(args, root):
+    return run(["git"] + args, root)
+
+
+# --------------------------------------------------------------------------
+# Repository hygiene
+# --------------------------------------------------------------------------
+
+
+def check_line_count(ctx):
+    out = run([str(BUNDLED / "line_count"), str(ctx.root), "--format", "json"], ctx.root)
+    if out.returncode not in (0, 1):
+        return Finding("line-count", SKIP, "line_count did not run", [out.stderr.strip()])
+    try:
+        data = json.loads(out.stdout)
+    except json.JSONDecodeError:
+        return Finding("line-count", SKIP, "line_count emitted no JSON")
+    over = data.get("findings", [])
+    if not over:
+        return Finding("line-count", PASS, f"{data.get('files', 0)} files, none oversized")
+    return Finding(
+        "line-count",
+        FAIL,
+        f"{len(over)} file(s) over the line threshold",
+        [f"{f['path']}: {f['lines']} lines ({f['severity']})" for f in over],
+        prompt=(
+            "Split these files into focused modules. Preserve behavior; this is a "
+            "refactor, not a rewrite. Use Rust 2018 module syntax (no mod.rs)."
+        ),
+    )
+
+
+def check_agents_symlink(ctx):
+    script = BUNDLED / "11_ensure_agents_symlink"
+    out = run([str(script)], ctx.root)
+    text = (out.stdout + out.stderr).strip()
+    if out.returncode != 0:
+        return Finding("agents-symlink", FAIL, "AGENTS.md is missing", text.splitlines())
+    edited = "EDITS MADE: yes" in text
+    return Finding(
+        "agents-symlink",
+        PASS,
+        "CLAUDE.md -> AGENTS.md" + (" (created)" if edited else ""),
+    )
+
+
+def check_edition(ctx):
+    wrong = [
+        f"{p['name']}: edition {p.get('edition')}"
+        for p in ctx.packages
+        if p.get("edition") != REQUIRED_EDITION
+    ]
+    if wrong:
+        return Finding(
+            "edition",
+            FAIL,
+            f"{len(wrong)} package(s) not on edition {REQUIRED_EDITION}",
+            wrong,
+            prompt=(
+                f"Move these packages to edition {REQUIRED_EDITION}, then fix the "
+                "warnings the new edition introduces and re-run the gate."
+            ),
+        )
+    return Finding("edition", PASS, f"all {len(ctx.packages)} packages on edition {REQUIRED_EDITION}")
+
+
+def check_license_headers(ctx):
+    missing = [
+        str(p.relative_to(ctx.root))
+        for p in ctx.rust_files()
+        if not p.read_text(encoding="utf-8", errors="replace").lstrip().startswith("// SPDX-License-Identifier:")
+    ]
+    stale = []
+    year = str(date.today().year)
+    for name in ("NOTICE", "LICENSE", "LICENSE-MIT.md", "LICENSE-MIT", "README.md"):
+        path = ctx.root / name
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "copyright" not in line.lower() or "[yyyy]" in line.lower():
+                continue
+            years = re.findall(r"\b(19|20)\d{2}\b", line)
+            if years and year not in re.findall(r"\b((?:19|20)\d{2})\b", line):
+                stale.append(f"{name}: {line.strip()}")
+    detail = [f"missing SPDX: {m}" for m in missing] + [f"stale year: {s}" for s in stale]
+    if not detail:
+        return Finding("license-headers", PASS, "SPDX headers present, copyright current")
+    return Finding(
+        "license-headers",
+        FAIL,
+        f"{len(missing)} file(s) without SPDX, {len(stale)} stale copyright line(s)",
+        detail,
+        fix=f"{BUNDLED / 'spdx'} --apply" if missing else None,
+        prompt=(
+            f"Add the missing SPDX headers (run the fix command) and update copyright "
+            f"years to {year}."
+            if stale
+            else None
+        ),
+    )
+
+
+def check_ci_template(ctx):
+    workflow = ctx.root / ".github" / "workflows" / "ci.yaml"
+    if not workflow.is_file():
+        workflow = ctx.root / ".github" / "workflows" / "ci.yml"
+    template = SKILL_DIR / "templates" / "ci.yml"
+    if not workflow.is_file():
+        return Finding("ci-template", FAIL, "no .github/workflows/ci.yaml", prompt=f"Copy {template} into place.")
+    have, want = workflow.read_text(), template.read_text()
+    if have == want:
+        return Finding("ci-template", PASS, f"matches template ({marker(want)})")
+    return Finding(
+        "ci-template",
+        JUDGMENT,
+        f"workflow is {marker(have)}, template is {marker(want)}",
+        prompt=(
+            f"Reconcile {workflow} with {template}. They are not identical. Merge the "
+            "template's changes forward while preserving anything project-specific in "
+            "the workflow — the template is a starting point, not an overwrite."
+        ),
+    )
+
+
+def marker(text):
+    first = text.splitlines()[0] if text.splitlines() else ""
+    return first.strip("# ").strip() or "unversioned"
+
+
+# --------------------------------------------------------------------------
+# Dependencies and publishability
+# --------------------------------------------------------------------------
+
+
+def check_dependencies(ctx):
+    problems = []
+    for pkg in ctx.packages:
+        for dep in pkg.get("dependencies", []):
+            where = f"{pkg['name']} -> {dep['name']}"
+            if dep.get("source") and "git+" in str(dep.get("source")):
+                problems.append(f"{where}: git dependency")
+            path = dep.get("path")
+            if path and not str(path).startswith(str(ctx.root)):
+                problems.append(f"{where}: path outside the workspace ({path})")
+            # A dev-dependency may name only a path: cargo drops it when
+            # publishing, which is what lets a crate dev-depend on something
+            # that depends back on it. A normal one may not.
+            if path and dep.get("req") == "*" and dep.get("kind") is None:
+                problems.append(f"{where}: path dependency with no version requirement")
+    if problems:
+        return Finding(
+            "dependencies",
+            FAIL,
+            f"{len(problems)} dependency problem(s)",
+            problems,
+            prompt=(
+                "Fix these before publishing. A path dependency with no version cannot "
+                "be packaged: declare it in [workspace.dependencies] with both a path "
+                "and a version, and have members inherit it with `workspace = true`. "
+                "Leave dev-dependencies that point back at a dependent crate bare — "
+                "versioning those creates a cycle with no publishable order."
+            ),
+        )
+    return Finding("dependencies", PASS, "no git, external-path, or unversioned dependencies")
+
+
+def check_package(ctx):
+    """Actually try to package. A checklist that never attempts the release has a hole."""
+    broken = []
+    for pkg in ctx.publishable():
+        out = run(
+            ["cargo", "package", "-p", pkg["name"], "--no-verify", "--allow-dirty", "--quiet"],
+            ctx.root,
+            timeout=600,
+        )
+        if out.returncode == 0:
+            continue
+        err = out.stderr
+        # Downstream crates cannot package until their siblings are actually on
+        # the registry. That is publish order, not a defect.
+        if "no matching package named" in err and "crates.io index" in err:
+            continue
+        first = next((l.strip() for l in err.splitlines() if l.strip().startswith("error")), err.strip()[:200])
+        broken.append(f"{pkg['name']}: {first}")
+    if broken:
+        return Finding(
+            "package",
+            FAIL,
+            f"{len(broken)} crate(s) cannot be packaged",
+            broken,
+            prompt="Resolve these packaging errors; each one blocks `cargo publish`.",
+        )
+    return Finding("package", PASS, f"{len(ctx.publishable())} crate(s) package cleanly")
+
+
+def check_version(ctx):
+    """Is this version number right, given what is already on crates.io?"""
+    state = {p["name"]: crates_io_versions(p["name"]) for p in ctx.publishable()}
+    unknown = [n for n, (s, _) in state.items() if s == "unknown"]
+    if unknown:
+        return Finding("version", SKIP, f"could not reach crates.io for {len(unknown)} crate(s)", unknown)
+
+    slug = ctx.repo_slug()
+    ours = f"github.com/{slug[0]}/{slug[1]}" if slug else None
+    # A name that exists on crates.io is not necessarily *your* crate. Comparing
+    # the published repository against this one separates "we have released
+    # before" from "this name belongs to somebody else", which are opposite
+    # problems: one needs a version bump, the other needs a rename.
+    taken = [
+        f"{n}: crates.io/{n} belongs to {info['repository'] or 'an unknown repository'}"
+        for n, (s, info) in state.items()
+        if s == "published" and ours and ours not in (info["repository"] or "")
+    ]
+    if taken:
+        return Finding(
+            "version",
+            FAIL,
+            f"{len(taken)} crate name(s) already belong to someone else",
+            taken,
+            prompt=(
+                "These names are taken on crates.io by an unrelated project, so "
+                "`cargo publish` will be rejected. Either rename the crate, or set "
+                "`publish = false` if it was never meant to be released."
+            ),
+        )
+    if all(s == "absent" for s, _ in state.values()):
+        return Finding(
+            "version",
+            PASS,
+            f"never published; {ctx.packages[0]['version'] if ctx.packages else '?'} is a first release",
+        )
+    detail = [
+        f"{n}: local {ver(ctx, n)}, crates.io {(info['version'] if info else 'unpublished')}"
+        for n, (s, info) in state.items()
+    ]
+    return Finding(
+        "version",
+        JUDGMENT,
+        "published before; the version bump needs checking",
+        detail,
+        prompt=(
+            "Run `cargo semver-checks`. If it reports required major changes, bump the "
+            "major component (0.1.0 -> 0.2.0, 1.0.0 -> 2.0.0); otherwise bump the minor "
+            "(0.1.0 -> 0.1.1, 1.0.0 -> 1.1.0). Update the version in Cargo.toml, the "
+            "version in [workspace.dependencies] if one is declared there, and the "
+            "CHANGELOG heading to match."
+        ),
+    )
+
+
+def ver(ctx, name):
+    for p in ctx.packages:
+        if p["name"] == name:
+            return p["version"]
+    return "?"
+
+
+def crates_io_versions(name):
+    """Ask the sparse index whether a crate exists, and for which versions.
+
+    Returns ("published", [versions]), ("absent", []) or ("unknown", []).
+
+    The third case matters more than it looks. Treating an unreachable index as
+    "never published" would silently green-light a first-release version number
+    for a crate that has shipped ten times — a wrong answer produced by a
+    network error, which is the failure mode this whole tool exists to avoid.
+    So it is reported as unknown rather than folded into either verdict.
+    """
+    # curl rather than urllib: the interpreter shipped with macOS has no CA
+    # bundle wired up, so urllib fails to verify *every* certificate. crates.io
+    # wants a User-Agent that identifies the caller.
+    out = run(
+        [
+            "curl", "-sS", "-o", "-", "-w", "\n%{http_code}", "--max-time", "20",
+            "-H", "User-Agent: release-prep (https://github.com/drewcrawford/skills)",
+            f"https://crates.io/api/v1/crates/{name}",
+        ],
+        Path.cwd(),
+    )
+    if out.returncode != 0:
+        return "unknown", None
+    body, _, code = out.stdout.rpartition("\n")
+    if code.strip() == "404":
+        return "absent", None
+    if code.strip() != "200":
+        return "unknown", None
+    try:
+        crate = json.loads(body)["crate"]
+        return "published", {"version": crate.get("max_version"), "repository": crate.get("repository") or ""}
+    except (ValueError, KeyError):
+        return "unknown", None
+
+
+def check_msrv(ctx):
+    declared = {p.get("rust_version") for p in ctx.packages if p.get("rust_version")}
+    if not declared:
+        return Finding("msrv", FAIL, "no rust-version declared", prompt="Declare rust-version in [workspace.package].")
+    editions = {p.get("edition") for p in ctx.packages}
+    floor = max((EDITION_FLOOR.get(e, "1.85") for e in editions), key=lambda v: tuple(map(int, v.split("."))))
+    if not ctx.args.slow:
+        return Finding("msrv", SKIP, f"declared {sorted(declared)}; re-run with --slow to verify")
+    out = run(["cargo", "msrv", "find", "--min", floor], ctx.root, timeout=3600)
+    found = re.search(r"MSRV:\s*(\d+\.\d+(?:\.\d+)?)", out.stdout + out.stderr)
+    if not found:
+        return Finding("msrv", SKIP, "cargo msrv did not report an MSRV", (out.stdout + out.stderr).splitlines()[-5:])
+    detected = found.group(1)
+    if len(declared) == 1 and next(iter(declared)).startswith(detected):
+        return Finding("msrv", PASS, f"declared {detected} matches detection")
+    return Finding(
+        "msrv",
+        FAIL,
+        f"detected {detected}, declared {sorted(declared)}",
+        prompt=f"Set rust-version to {detected} everywhere it is declared.",
+    )
+
+
+# --------------------------------------------------------------------------
+# Documentation
+# --------------------------------------------------------------------------
+
+
+def crate_doc(path):
+    """The crate-level doc comment, in either `//!` or `/*! */` form."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+    out, started = [], False
+    for line in lines:
+        if line.startswith("//!"):
+            started = True
+            out.append(line[4:] if line.startswith("//! ") else line[3:])
+        elif started and line.strip() and not line.startswith("//"):
+            break
+    if out:
+        return out
+    block = re.search(r"/\*!(.*?)\*/", text, re.S)
+    return block.group(1).splitlines() if block else []
+
+
+def check_docs_presence(ctx):
+    """Missing module headers, plus whatever rustdoc's own lint catches."""
+    bare = []
+    for path in ctx.workspace_rust_files():
+        # Scan a generous window rather than the first few lines: inner
+        # attributes such as a multi-line `#![cfg_attr(...)]` legitimately sit
+        # above the header.
+        head = path.read_text(encoding="utf-8", errors="replace").splitlines()[:60]
+        if not any(l.startswith("//!") or l.lstrip().startswith("/*!") for l in head):
+            bare.append(str(path.relative_to(ctx.root)))
+    out = run([str(BUNDLED / "check_docs")], ctx.root, timeout=1800) if ctx.args.slow else None
+    detail = [f"no //! header: {b}" for b in bare]
+    if out is not None and out.returncode != 0:
+        detail += ["rustdoc reported undocumented public items"] + out.stderr.strip().splitlines()[-10:]
+    if not detail:
+        return Finding("docs-presence", PASS, "every module carries a header")
+    return Finding(
+        "docs-presence",
+        JUDGMENT,
+        f"{len(bare)} module(s) without a //! header",
+        detail,
+        prompt=(
+            "Write a `//!` header for each of these describing what the module actually "
+            "does — read the implementation first; a header that restates the filename "
+            "is worse than none. `-D missing_docs` does not reach private modules, "
+            "which is why these were invisible."
+        ),
+    )
+
+
+def check_docs_assets(ctx):
+    """Asset references in crate docs must be absolute and must exist.
+
+    A relative path resolves against the local `target/doc` tree and against
+    nothing at all on docs.rs, so it renders while you are testing it and 404s
+    for everyone else. An absolute URL is correct but can still name a file that
+    was renamed or never existed, so the path component is checked too.
+    """
+    slug = ctx.repo_slug()
+    problems = []
+    for pkg in ctx.packages:
+        lib = Path(pkg["manifest_path"]).parent / "src" / "lib.rs"
+        if not lib.is_file():
+            continue
+        for line in crate_doc(lib):
+            for alt, url in re.findall(r"!\[([^\]]*)\]\(([^)]+)\)", line):
+                rel = str(lib.relative_to(ctx.root))
+                if not url.startswith(("http://", "https://")):
+                    problems.append(f"{rel}: relative asset '{url}' ({alt}) — breaks on docs.rs")
+                    continue
+                m = re.match(r"https://github\.com/([^/]+)/([^/]+)/raw/[^/]+/(.+)", url)
+                if not m:
+                    continue
+                if slug and (m.group(1), m.group(2)) != slug:
+                    problems.append(f"{rel}: asset points at {m.group(1)}/{m.group(2)}, not {slug[0]}/{slug[1]}")
+                target = ctx.root / m.group(3)
+                if not target.is_file():
+                    problems.append(f"{rel}: asset '{m.group(3)}' does not exist in the repo")
+                elif target.suffix.lower() in VIDEO_EXT:
+                    problems.append(
+                        f"{rel}: '{m.group(3)}' is video in markdown image syntax — "
+                        "use <video src=... controls> so it plays"
+                    )
+    if problems:
+        return Finding(
+            "docs-assets",
+            FAIL,
+            f"{len(problems)} asset problem(s) in crate docs",
+            problems,
+            prompt=(
+                "Rewrite each crate-doc asset reference as an absolute URL of the form "
+                "https://github.com/<owner>/<repo>/raw/main/<path>, pointing at a file "
+                "that exists. README keeps the repo-relative path; only the crate doc "
+                "takes the absolute form. Video belongs in a <video> element, and its "
+                "README counterpart is the .gif of the same name."
+            ),
+        )
+    return Finding("docs-assets", PASS, "crate-doc assets are absolute and present")
+
+
+def to_readme_form(lines, slug):
+    """Render crate-doc markdown the way the README spells the same content."""
+    owner_repo = f"{slug[0]}/{slug[1]}" if slug else r"[^/]+/[^/]+"
+    # Reference-link definitions go first: the intra-doc rewrite below would
+    # otherwise eat the brackets that identify them, leaving the URL stranded in
+    # the text as though the README were missing a line.
+    kept = [l for l in lines if not re.match(r"^\s*\[`?[^`\]]+`?\]:\s*\S+$", l)]
+    out = []
+    for line in kept:
+        line = re.sub(rf"https://github\.com/{owner_repo}/raw/[^/]+/", "", line)
+        line = re.sub(rf"https://github\.com/{owner_repo}/(?:blob|tree)/[^/]+/", "./", line)
+        line = re.sub(r"\[(`[^`]+`)\]\(crate\)", r"\1", line)
+        line = re.sub(r"\[(`[^`]+`)\](?!\()", r"\1", line)
+        for ext in VIDEO_EXT:
+            line = line.replace(ext, ".gif")
+        out.append(line)
+    return out
+
+
+def canonical_blocks(lines):
+    """Reflow to paragraph units so wrap width cannot masquerade as drift."""
+    blocks, para, in_code = [], [], False
+    # A wrapped list item continues on a plain line, so a bare paragraph line
+    # directly beneath one belongs to it — otherwise wrap width alone splits a
+    # bullet into two blocks and every re-wrap reads as drift.
+    continuing_list = False
+
+    def flush():
+        nonlocal para
+        if para:
+            blocks.append(" ".join(para))
+            para = []
+
+    for raw in lines:
+        line = raw.rstrip()
+        if line.startswith("```"):
+            flush()
+            in_code = not in_code
+            blocks.append("```rust" if line == "```" else line)
+            continuing_list = False
+            continue
+        if in_code:
+            blocks.append(line)
+            continue
+        if not line.strip():
+            flush()
+            continuing_list = False
+            continue
+        stripped = line.lstrip()
+        # A marker needs whitespace after it. Without that test, a paragraph
+        # opening with bold text — `**nightly + ...` — reads as a bullet, and
+        # the block boundary it invents shows up as drift.
+        is_bullet = bool(re.match(r"^(?:[*\-+>]|\d+\.)\s", stripped))
+        if is_bullet or stripped[:1] in "|#":
+            flush()
+            blocks.append(" ".join(line.split()))
+            continuing_list = is_bullet
+            continue
+        if continuing_list and not para:
+            blocks[-1] += " " + " ".join(line.split())
+            continue
+        para.append(line.strip())
+    flush()
+    return [normalize_names(b) for b in blocks]
+
+
+def normalize_names(block):
+    """Collapse the ways the same item gets spelled on each side of the boundary.
+
+    An attribute macro is `#[export]` in prose and `[`export`]` as an intra-doc
+    link; a README qualifies it as `wasm_lite::export` where rustdoc, already
+    inside the crate, does not; and a relative link is written with or without a
+    leading `./`. None of those are differences of content.
+    """
+    block = re.sub(r"`#\[([^\]]+)\]`", r"`\1`", block)
+    block = re.sub(r"`(?:\w+::)+(\w+!?)`", r"`\1`", block)
+    block = re.sub(r"\]\(\./", "](", block)
+    return block
+
+
+def check_readme_sync(ctx):
+    readme = ctx.root / "README.md"
+    root_pkgs = [p for p in ctx.packages if (Path(p["manifest_path"]).parent / "src" / "lib.rs").is_file()]
+    if not readme.is_file() or not root_pkgs:
+        return Finding("readme-sync", SKIP, "no README.md or no lib.rs to compare")
+    # The crate whose docs the README mirrors is the one named like the repo.
+    slug = ctx.repo_slug()
+    primary = next((p for p in root_pkgs if slug and p["name"].replace("-", "_") == slug[1].replace("-", "_")), root_pkgs[0])
+    lib = Path(primary["manifest_path"]).parent / "src" / "lib.rs"
+    generated = canonical_blocks(to_readme_form(crate_doc(lib), slug))
+    actual = canonical_blocks(readme.read_text(encoding="utf-8", errors="replace").splitlines())
+    import difflib
+
+    diff = [l for l in difflib.unified_diff(generated, actual, f"from {lib.name}", "README.md", lineterm="", n=0)]
+    if not diff:
+        return Finding("readme-sync", PASS, f"README.md matches {primary['name']}'s crate docs")
+    newer = more_recently_changed(ctx, lib, readme)
+    guidance = {
+        "lib": f"{lib} changed more recently, so README.md is stale: port the crate-doc changes into it.",
+        "readme": (
+            f"README.md changed more recently, so the edit landed on the wrong side: "
+            f"port it back into {lib}, which is the source, then re-sync the README."
+        ),
+        None: "Both changed; reconcile them by hand.",
+    }[newer]
+    return Finding(
+        "readme-sync",
+        JUDGMENT,
+        f"README.md and {lib.name} differ in {sum(1 for l in diff if l.startswith('@@'))} place(s)",
+        diff[:60],
+        prompt=(
+            guidance + " Differences of link syntax, logo URL, wrap width, and "
+            "`#[attr]` spelling are expected and already normalized away — everything "
+            "listed above is real drift."
+        ),
+    )
+
+
+def more_recently_changed(ctx, a, b):
+    """Which of two files has the newer commit? None if they share one."""
+    stamps = {}
+    for key, path in (("lib", a), ("readme", b)):
+        out = git(["log", "-1", "--format=%ct", "--", str(path)], ctx.root)
+        stamps[key] = int(out.stdout.strip()) if out.stdout.strip().isdigit() else 0
+    if stamps["lib"] == stamps["readme"]:
+        return None
+    return "lib" if stamps["lib"] > stamps["readme"] else "readme"
+
+
+def check_doctests(ctx):
+    """`no_run` and `ignore` need a stated reason, or nobody can tell if they still apply."""
+    offenders = []
+    pattern = re.compile(r"```[^\n`]*\b(no_run|ignore)\b")
+    for path in ctx.rust_files():
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        for i, line in enumerate(lines):
+            m = pattern.search(line)
+            if not m:
+                continue
+            window = " ".join(lines[i : i + 4])
+            if f"{m.group(1)} because:" not in window:
+                offenders.append(f"{path.relative_to(ctx.root)}:{i + 1}: {m.group(1)} without a reason")
+    if offenders:
+        return Finding(
+            "doctests",
+            FAIL,
+            f"{len(offenders)} doctest(s) missing a justification",
+            offenders,
+            prompt=(
+                "Add a hidden comment on the line after each fence explaining why it "
+                "cannot run, e.g. `# // no_run because: needs a browser`. An `ignore` "
+                "block that is not Rust at all (a diagram, a table) should say so."
+            ),
+        )
+    return Finding("doctests", PASS, "annotated doctests all state a reason")
+
+
+# --------------------------------------------------------------------------
+# The gate, and the checks that only a model can settle
+# --------------------------------------------------------------------------
+
+
+def check_gate(ctx):
+    script = ctx.root / "scripts" / "check_all"
+    if not script.is_file():
+        return Finding("gate", SKIP, "no scripts/check_all in this project")
+    if not ctx.args.slow:
+        return Finding("gate", SKIP, "re-run with --slow to run scripts/check_all")
+    out = run([str(script)], ctx.root, timeout=7200)
+    if out.returncode == 0:
+        return Finding("gate", PASS, "scripts/check_all passed")
+    tail = (out.stdout + out.stderr).strip().splitlines()[-25:]
+    return Finding(
+        "gate",
+        FAIL,
+        f"scripts/check_all failed ({out.returncode})",
+        tail,
+        prompt="Fix what the gate reports, then re-run it. Do not narrow the gate to make it pass.",
+    )
+
+
+def judgment(name, summary, prompt):
+    return lambda ctx: Finding(name, JUDGMENT, summary, prompt=prompt)
+
+
+check_classification = judgment(
+    "classification",
+    "crates.io categories and GitHub topics need a look",
+    "Decide how this project should be classified, then apply it in both places. "
+    "Categories: at most 5, and every slug must appear in "
+    "https://crates.io/api/v1/category_slugs. Topics: `gh repo view --json "
+    "repositoryTopics`, then `gh repo edit --add-topic`/`--remove-topic`. They "
+    "answer the same question for two registries, so decide once. Change them "
+    "only if the project has actually moved.",
+)
+
+check_traits = judgment(
+    "traits",
+    "public types need a trait audit",
+    "List the public API (`scripts/compare_api.sh`) and, for each type, ask whether "
+    "it should implement Debug, Clone, Copy, PartialEq/Eq, Hash, Default, Display, "
+    "From/Into, AsRef/AsMut, Deref/DerefMut, or Error; whether Send/Sync/!Unpin are "
+    "worth guaranteeing; and whether every public enum is #[non_exhaustive] or "
+    "documented as deliberately exhaustive. Also confirm no public type is "
+    "unnameable — reachable through a public signature but never exported.",
+)
+
+check_documentation = judgment(
+    "documentation",
+    "documentation accuracy needs reading",
+    "The mechanical checks cover presence, links, assets, and README sync. What is "
+    "left is whether the prose is still true: run `scripts/compare_docs.sh` and "
+    "`scripts/compare_api.sh`, and decide whether recent changes make the crate-level "
+    "docs wrong. Fix what has drifted. Do not restyle what has not.",
+)
+
+check_changelog = judgment(
+    "changelog",
+    "the changelog needs updating",
+    "Use the `changelog` skill. Document every user-facing commit since the last "
+    "release; omit pure refactors and CI chores. Match the file's existing voice.",
+)
+
+check_ci = judgment(
+    "ci",
+    "push and confirm CI on every remote",
+    "For each remote (`git remote`), ensure the tree is clean, push, and wait for its "
+    "CI to finish — the `gitea` and `github` skills poll for you. If a run fails, "
+    "investigate and report the cause, but do not fix it as part of this step.",
+)
+
+# Order matters: cheap and structural first, then the things that edit files,
+# then the gate — which has to run after the edits, not before them.
+CHECKS = [
+    ("line-count", check_line_count),
+    ("agents-symlink", check_agents_symlink),
+    ("edition", check_edition),
+    ("dependencies", check_dependencies),
+    ("doctests", check_doctests),
+    ("license-headers", check_license_headers),
+    ("docs-presence", check_docs_presence),
+    ("docs-assets", check_docs_assets),
+    ("readme-sync", check_readme_sync),
+    ("documentation", check_documentation),
+    ("traits", check_traits),
+    ("ci-template", check_ci_template),
+    ("classification", check_classification),
+    ("msrv", check_msrv),
+    ("package", check_package),
+    ("version", check_version),
+    ("changelog", check_changelog),
+    ("gate", check_gate),
+    ("ci", check_ci),
+]
+
+GLYPH = {PASS: "ok  ", FAIL: "FAIL", JUDGMENT: "ask ", SKIP: "skip"}
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("root", nargs="?", default=".", help="repository to inspect (default: cwd)")
+    parser.add_argument("--only", action="append", metavar="CHECK", help="run just this check (repeatable)")
+    parser.add_argument("--skip", action="append", metavar="CHECK", default=[], help="skip a check (repeatable)")
+    parser.add_argument("--slow", action="store_true", help="also run the checks that build or bisect")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument("--list", action="store_true", help="list check names and exit")
+    args = parser.parse_args(argv)
+
+    if args.list:
+        for name, _ in CHECKS:
+            print(name)
+        return 0
+
+    root = Path(args.root).resolve()
+    if not (root / ".git").exists():
+        parser.error(f"not a git repository: {root}")
+    known = {name for name, _ in CHECKS}
+    for name in (args.only or []) + args.skip:
+        if name not in known:
+            parser.error(f"unknown check: {name}")
+
+    ctx = Ctx(root, args)
+    findings = []
+    for name, fn in CHECKS:
+        if args.only and name not in args.only:
+            continue
+        if name in args.skip:
+            continue
+        try:
+            findings.append(fn(ctx))
+        except subprocess.TimeoutExpired:
+            findings.append(Finding(name, FAIL, "timed out"))
+        except Exception as exc:  # a broken check must not hide the other findings
+            findings.append(Finding(name, SKIP, f"check raised {type(exc).__name__}: {exc}"))
+
+    if args.format == "json":
+        print(json.dumps({"root": str(root), "findings": [f.as_dict() for f in findings]}, indent=2))
+    else:
+        report(findings)
+    return 1 if any(f.status in (FAIL, JUDGMENT) for f in findings) else 0
+
+
+def report(findings):
+    for f in findings:
+        print(f"[{GLYPH[f.status]}] {f.check}: {f.summary}")
+    todo = [f for f in findings if f.status in (FAIL, JUDGMENT)]
+    if not todo:
+        print("\nNothing outstanding.")
+        return
+    for f in todo:
+        print(f"\n--- {f.check} ({f.status}) ---")
+        print(f.summary)
+        for line in f.detail[:40]:
+            print(f"  {line}")
+        if len(f.detail) > 40:
+            print(f"  ... and {len(f.detail) - 40} more")
+        if f.fix:
+            print(f"fix: {f.fix}")
+        if f.prompt:
+            print(f"prompt: {f.prompt}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

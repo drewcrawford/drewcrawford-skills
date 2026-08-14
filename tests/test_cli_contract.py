@@ -23,6 +23,7 @@ COMMANDS = [
     [str(ROOT / "skills/release-prep/scripts/compare_api.sh")],
     [str(ROOT / "skills/release-prep/scripts/compare_docs.sh")],
     [str(ROOT / "skills/release-prep/scripts/line_count")],
+    [str(ROOT / "skills/release-prep/scripts/release_prep")],
     [str(ROOT / "skills/release-prep/scripts/spdx")],
     [PYTHON, str(ROOT / "skills/write-skills/scripts/validate_skill.py")],
 ]

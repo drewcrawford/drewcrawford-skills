@@ -45,9 +45,10 @@ after `git pull` to update.
 
 **Release engineering:**
 
-* **release-prep** — a 25-step Rust release checklist (semver, MSRV, SPDX,
-  API diffing against the last tag, doc coverage) that drives one subagent per
-  step and composes the CI and changelog skills below.
+* **release-prep** — a Rust release gate. `release_prep` decides the mechanical
+  checks itself (SPDX, MSRV, editions, publishability, doc coverage, README/crate-doc
+  drift, crates.io name ownership) in seconds, and hands back a named prompt for
+  the few that need judgment. Composes the CI and changelog skills below.
 * **changelog** — generates release notes from git history with a five-level
   voice dial, from just-the-facts to Slack-release-notes chipper.
 * **github** / **gitea** — CI monitors for both forges: full Python API
