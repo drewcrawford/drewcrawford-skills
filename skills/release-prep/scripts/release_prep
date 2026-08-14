@@ -628,7 +628,10 @@ def check_msrv(ctx):
 
 def crate_doc(path):
     """The crate-level doc comment, in either `//!` or `/*! */` form."""
-    text = path.read_text(encoding="utf-8", errors="replace")
+    return crate_doc_text(path.read_text(encoding="utf-8", errors="replace"))
+
+
+def crate_doc_text(text):
     lines = text.splitlines()
     out, started = [], False
     for line in lines:
@@ -1150,10 +1153,25 @@ def check_documentation(ctx):
     ]
     if not changed:
         return Finding("documentation", PASS, f"public API unchanged since {tag}")
+    # An ask has to be answerable within the pass that raises it. Editing the
+    # crate doc is the answer, and is visible; deciding the doc needs no change
+    # is equally valid and leaves no trace at all, so an ask that only the first
+    # can clear would stand for the whole release either way. Treat the crate
+    # doc having been opened in this same window as the answer. It is weaker
+    # than reading the prose — a logo URL corrected for `docs-assets` counts —
+    # and it is the strongest signal that exists without inventing a file whose
+    # only purpose is to record that somebody looked.
+    if crate_doc_edited_since(ctx, tag):
+        return Finding(
+            "documentation",
+            PASS,
+            f"{len(changed)} public API item(s) changed since {tag}, and the crate docs were edited in the same window",
+            changed[:40],
+        )
     return Finding(
         "documentation",
         JUDGMENT,
-        f"{len(changed)} public API item(s) changed since {tag}",
+        f"{len(changed)} public API item(s) changed since {tag}, and the crate docs were not touched",
         changed[:40],
         prompt=(
             "Check the crate-level docs against these items specifically: does the prose "
@@ -1162,6 +1180,21 @@ def check_documentation(ctx):
             "same comparison for doc text if the API diff is not enough to decide."
         ),
     )
+
+
+def crate_doc_edited_since(ctx, tag):
+    """Has any crate-level doc comment changed since `tag`?"""
+    for pkg in ctx.publishable():
+        lib = Path(pkg["manifest_path"]).parent / "src" / "lib.rs"
+        if not lib.is_file():
+            continue
+        rel = str(lib.relative_to(ctx.root))
+        was = git(["show", f"{tag}:{rel}"], ctx.root)
+        if was.returncode != 0:
+            return True  # the crate did not exist at the tag, so all of it is new
+        if crate_doc_text(was.stdout) != crate_doc(lib):
+            return True
+    return False
 
 
 def newest_tag(ctx):
