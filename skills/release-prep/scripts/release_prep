@@ -494,11 +494,21 @@ def check_version(ctx):
     if run(["cargo", "semver-checks", "--version"], ctx.root).returncode != 0:
         return Finding(
             "version",
-            PASS,
-            f"{len(ahead)} crate(s) bumped; cargo-semver-checks is not installed, so the bump size is unverified",
-            ahead + ["cargo install cargo-semver-checks"],
+            JUDGMENT,
+            f"{len(ahead)} crate(s) bumped; the bump size is unverified",
+            ahead,
+            prompt=(
+                "Install cargo-semver-checks (`cargo install cargo-semver-checks`) and "
+                "re-run, or check by hand whether anything removed or narrowed since the "
+                "published version requires a major bump."
+            ),
         )
     out = run(["cargo", "semver-checks"], ctx.root, timeout=3600)
+    # A crate that sets `build-std` needs nightly and rust-src to produce
+    # rustdoc's JSON at all, and stable bails before checking anything. Retry
+    # rather than report a verdict from a toolchain that never ran.
+    if out.returncode != 0 and "semver requires new" not in out.stdout + out.stderr:
+        out = run(["cargo", "+nightly", "semver-checks"], ctx.root, timeout=3600) or out
     if out.returncode == 0:
         return Finding("version", PASS, "bumped, and cargo semver-checks accepts the bump", ahead)
     text = out.stdout + out.stderr
@@ -506,13 +516,20 @@ def check_version(ctx):
     # rustdoc's JSON, whose format is versioned and moves with the toolchain, so
     # a tool a few releases behind the compiler exits non-zero having checked
     # nothing. Reporting that as "your bump is too small" sends someone to
-    # change a version number over a stale binary.
+    # change a version number over a stale binary — and reporting it as ok
+    # claims a verification that did not happen, which is the worse of the two.
     if "semver requires new" not in text:
         return Finding(
             "version",
-            PASS,
+            JUDGMENT,
             f"{len(ahead)} crate(s) bumped; cargo semver-checks did not complete, so the bump size is unverified",
-            ahead + ["cargo semver-checks did not complete:"] + text.strip().splitlines()[-6:],
+            ahead + text.strip().splitlines()[-8:],
+            prompt=(
+                "Get cargo-semver-checks to run here — a stale binary against a newer "
+                "rustdoc format needs `cargo install cargo-semver-checks` again — then "
+                "re-run. Its verdict on whether the bump is large enough is the thing "
+                "this check cannot supply on its own."
+            ),
         )
     return Finding(
         "version",
