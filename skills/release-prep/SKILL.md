@@ -26,6 +26,11 @@ Every check reports one of four verdicts:
 | `ask` | the script cannot decide | do the work the `prompt:` describes |
 | `skip` | not applicable, or needs `--slow` | nothing, unless you meant to run it |
 
+A check that raises reports `FAIL`, not `skip`. It confirmed nothing about the
+repository, and `skip` does not block the gate — so a crashing check would
+otherwise leave its subject unexamined under a run that says nothing is
+outstanding.
+
 Exit status is 0 only when nothing is outstanding, so the script doubles as the
 gate: **work until it exits 0.**
 

@@ -24,6 +24,7 @@ import os
 import re
 import subprocess
 import sys
+import traceback
 from datetime import date
 from pathlib import Path
 
@@ -1412,7 +1413,21 @@ def main(argv=None):
         except subprocess.TimeoutExpired:
             findings.append(Finding(name, FAIL, "timed out"))
         except Exception as exc:  # a broken check must not hide the other findings
-            findings.append(Finding(name, SKIP, f"check raised {type(exc).__name__}: {exc}"))
+            # FAIL rather than SKIP. A check that raised confirmed nothing, and
+            # skip does not block the gate, so the one that crashes is the one
+            # whose subject goes unexamined while the run reports that nothing
+            # is outstanding. That is how a crash on the Gitea path survived a
+            # green run: supplying credentials made the check worse than
+            # withholding them.
+            findings.append(
+                Finding(
+                    name,
+                    FAIL,
+                    f"check raised {type(exc).__name__}: {exc}",
+                    traceback.format_exc().strip().splitlines()[-6:],
+                    prompt=f"Fix the {name} check itself; it confirmed nothing about this repository.",
+                )
+            )
 
     if args.format == "json":
         print(json.dumps({"root": str(root), "findings": [f.as_dict() for f in findings]}, indent=2))
