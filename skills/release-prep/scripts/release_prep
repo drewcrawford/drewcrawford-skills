@@ -1331,18 +1331,35 @@ def forge_run_status(ctx, remote, url, head):
         return "unknown", "the gitea skill is not installed alongside this one"
     if not os.environ.get("GITEA_URL") or not os.environ.get("GITEA_TOKEN"):
         return "unknown", "GITEA_URL/GITEA_TOKEN are not set"
-    out = run([sys.executable, str(gitea), owner, repo, "--format", "json"], ctx.root, timeout=120)
+    # The window is how many commits back it will look for runs; the default
+    # of 10 is short for a release branch that has been worked on all day.
+    out = run([sys.executable, str(gitea), owner, repo, "--format", "json", "--commits", "50"], ctx.root, timeout=120)
     try:
-        runs = [r for r in json.loads(out.stdout) if str(r.get("head_sha") or r.get("sha") or "") == head]
-    except ValueError:
-        return "unknown", f"gitea_builds.py returned no JSON ({(out.stderr.strip().splitlines() or [''])[0]})"
+        runs = gitea_runs(out.stdout, head)
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        first_error = (out.stderr.strip().splitlines() or [type(exc).__name__])[0]
+        return "unknown", f"gitea_builds.py returned no run list ({first_error})"
     return summarise_runs(runs, "id")
+
+
+def gitea_runs(stdout, head):
+    """This commit's runs from `gitea_builds.py --format json`.
+
+    It answers with an object wrapping a runs list, where `gh run list` answers
+    with a bare array. Iterating the object walks its keys instead, which are
+    strings, so every field access on one raises — and a raising check used to
+    read as a skip, which does not block, so the run reported nothing
+    outstanding having confirmed nothing at all.
+    """
+    return [r for r in json.loads(stdout)["runs"] if str(r.get("head_sha") or "") == head]
 
 
 def summarise_runs(runs, id_key):
     if not runs:
         return "unknown", "no run for this commit"
-    newest = runs[0]
+    # A commit can be built more than once — a rerun, or both forges' ids in
+    # one list — and the last word is the highest id, not whatever came first.
+    newest = max(runs, key=lambda r: r.get(id_key) if isinstance(r.get(id_key), int) else -1)
     conclusion = (newest.get("conclusion") or newest.get("status") or "").lower()
     where = f"run {newest.get(id_key, '?')}"
     if conclusion in ("success", "completed"):

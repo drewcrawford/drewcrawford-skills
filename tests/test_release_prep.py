@@ -317,6 +317,39 @@ class ForgeRunTests(unittest.TestCase):
     def test_no_run_for_the_commit_is_unknown(self):
         self.assertEqual(rp.summarise_runs([], "id")[0], "unknown")
 
+    def test_the_newest_run_wins_not_the_first_listed(self):
+        # A rerun means two runs for one commit, and the list is not ordered.
+        runs = [{"id": 1300, "conclusion": "failure"}, {"id": 1318, "conclusion": "success"}]
+        self.assertEqual(rp.summarise_runs(runs, "id"), ("success", "run 1318 success"))
+
+
+class GiteaShapeTests(unittest.TestCase):
+    """`gitea_builds.py --format json` wraps its runs; `gh run list` does not.
+
+    Iterating the wrapper walks its keys, so every field access raised, and a
+    raising check reported skip — which does not block. Supplying credentials
+    made the check confirm less than withholding them did.
+    """
+
+    HEAD = "d818487000000000000000000000000000000000"
+    WRAPPED = (
+        '{"owner": "Metropolis", "repo": "continue", "branch": "main", "runs": '
+        '[{"id": 1318, "head_sha": "' + HEAD + '", "status": "completed", "conclusion": "success"}]}'
+    )
+
+    def test_the_run_is_found_inside_the_wrapper(self):
+        runs = rp.gitea_runs(self.WRAPPED, self.HEAD)
+        self.assertEqual(rp.summarise_runs(runs, "id"), ("success", "run 1318 success"))
+
+    def test_another_commits_run_is_not_this_commits(self):
+        self.assertEqual(rp.gitea_runs(self.WRAPPED, "0" * 40), [])
+
+    def test_a_bare_array_raises_rather_than_being_read_wrong(self):
+        # The shape this used to assume. Raising is right — the caller turns it
+        # into "could not be confirmed" instead of silently reporting green.
+        with self.assertRaises((TypeError, KeyError)):
+            rp.gitea_runs('[{"id": 1318}]', self.HEAD)
+
 
 if __name__ == "__main__":
     unittest.main()
