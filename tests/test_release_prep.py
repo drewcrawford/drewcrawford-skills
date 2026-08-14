@@ -172,5 +172,56 @@ class MsrvTests(unittest.TestCase):
         self.assertIn("cargo msrv find --min 1.85", finding.prompt)
 
 
+class CiTemplateTests(unittest.TestCase):
+    """A project's copy of the CI template is allowed to grow.
+
+    Byte equality made every project that installed a sibling tool ask
+    forever, which is a verdict nobody can act on twice.
+    """
+
+    TEMPLATE = SCRIPT.parents[1] / "templates/ci.yml"
+
+    def shape(self, text):
+        return rp.workflow_shape(text)
+
+    def test_the_marker_is_a_generation_not_any_comment(self):
+        self.assertEqual(self.shape("# matrix v11\non: [push]\n").marker, "matrix v11")
+        self.assertEqual(self.shape("# This file defines our CI\non: [push]\n").marker, "unversioned")
+        self.assertEqual(self.shape("on: [push]\n").marker, "unversioned")
+
+    def test_matrix_entries_are_the_projects_own(self):
+        # The template says extra include: entries are to be preserved, so
+        # nothing inside strategy: is compared.
+        text = self.TEMPLATE.read_text().replace(
+            '          - os: ubuntu-latest\n            target: "wasm32"\n',
+            '          - os: macos-latest\n            target: "native"\n            channel: nightly\n',
+        )
+        self.assertEqual(self.shape(text).keys, self.shape(self.TEMPLATE.read_text()).keys)
+
+    def test_a_run_body_is_not_mistaken_for_a_step(self):
+        text = "# matrix v11\njobs:\n  ci:\n    steps:\n      - name: one\n        run: |\n          - not a step\n"
+        self.assertEqual(self.shape(text).steps, ["one"])
+
+    def test_a_project_step_is_reported_not_penalised(self):
+        text = self.TEMPLATE.read_text().replace(
+            "      - name: rustfmt",
+            "      - name: Install wasm_lite runner\n        run: cargo build\n\n      - name: rustfmt",
+        )
+        shape = self.shape(text)
+        template = self.shape(self.TEMPLATE.read_text())
+        self.assertEqual([s for s in template.steps if s not in shape.steps], [])
+        self.assertEqual([s for s in shape.steps if s not in template.steps], ["Install wasm_lite runner"])
+
+    def test_a_raised_timeout_is_following_instructions(self):
+        # The template tells the project needing it to raise this, so the key
+        # is compared and the value is not.
+        text = self.TEMPLATE.read_text().replace("timeout-minutes: 15", "timeout-minutes: 45")
+        self.assertEqual(self.shape(text).keys, self.shape(self.TEMPLATE.read_text()).keys)
+
+    def test_a_dropped_step_is_still_visible(self):
+        text = self.TEMPLATE.read_text().replace("      - name: clippy\n        run: scripts/${{ matrix.target }}/clippy\n", "")
+        self.assertNotIn("clippy", self.shape(text).steps)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -226,6 +226,27 @@ def check_license_headers(ctx):
 
 
 def check_ci_template(ctx):
+    """Is this workflow the current generation of the template, plus whatever the project needs?
+
+    Byte equality was the wrong question. The template says so itself — raise
+    the timeout in the project that needs it, keep the extra matrix entries —
+    and a project that installs a sibling tool the template never heard of is
+    doing exactly what the template intends. Comparing bytes made every such
+    project ask forever, which trains a reader to stop looking.
+
+    Three questions are actually being asked, and only the first two have
+    mechanical answers:
+
+    - Is this the current *generation*? The `# matrix vN` marker answers it.
+      Bumping the marker is the assertion that someone merged this generation
+      forward; nothing else in the file can carry that claim.
+    - Does the workflow still carry what the template mandates — the same
+      steps, the same job-level keys? Names and keys answer it. Values do not:
+      the template tells projects to raise `timeout-minutes`, so comparing the
+      number would punish following the instructions.
+    - Does it add anything of its own? Always allowed, so never a defect —
+      reported only so the difference stays visible.
+    """
     workflow = ctx.root / ".github" / "workflows" / "ci.yaml"
     if not workflow.is_file():
         workflow = ctx.root / ".github" / "workflows" / "ci.yml"
@@ -233,23 +254,96 @@ def check_ci_template(ctx):
     if not workflow.is_file():
         return Finding("ci-template", FAIL, "no .github/workflows/ci.yaml", prompt=f"Copy {template} into place.")
     have, want = workflow.read_text(), template.read_text()
-    if have == want:
-        return Finding("ci-template", PASS, f"matches template ({marker(want)})")
-    return Finding(
-        "ci-template",
-        JUDGMENT,
-        f"workflow is {marker(have)}, template is {marker(want)}",
-        prompt=(
-            f"Reconcile {workflow} with {template}. They are not identical. Merge the "
-            "template's changes forward while preserving anything project-specific in "
-            "the workflow — the template is a starting point, not an overwrite."
-        ),
-    )
+    mine, theirs = workflow_shape(have), workflow_shape(want)
+
+    if mine.marker != theirs.marker:
+        import difflib
+
+        diff = list(difflib.unified_diff(want.splitlines(), have.splitlines(), "template", str(workflow), lineterm="", n=2))
+        return Finding(
+            "ci-template",
+            JUDGMENT,
+            f"workflow is {mine.marker}, template is {theirs.marker}",
+            diff[:60],
+            prompt=(
+                f"Merge {template} forward into {workflow}, preserving every step and "
+                "matrix entry the project added — the template is a starting point, not "
+                f"an overwrite. Then set the marker on line 1 to `# {theirs.marker}`, "
+                "which is what records that this generation was reconciled."
+            ),
+        )
+
+    missing = [f"step: {s}" for s in theirs.steps if s not in mine.steps]
+    missing += [f"key: {k}" for k in theirs.keys if k not in mine.keys]
+    if missing:
+        return Finding(
+            "ci-template",
+            FAIL,
+            f"claims {mine.marker} but {len(missing)} template item(s) are absent",
+            missing,
+            prompt=(
+                f"Either restore these from {template}, or — if the project dropped them "
+                "deliberately — say so, because the marker currently claims a generation "
+                "this workflow does not carry."
+            ),
+        )
+
+    extra = [s for s in mine.steps if s not in theirs.steps]
+    summary = f"{mine.marker}, every template step present"
+    if extra:
+        summary += f", plus {len(extra)} project step(s): {', '.join(extra)}"
+    return Finding("ci-template", PASS, summary)
 
 
-def marker(text):
-    first = text.splitlines()[0] if text.splitlines() else ""
-    return first.strip("# ").strip() or "unversioned"
+class Shape:
+    """The parts of a CI workflow the template governs."""
+
+    def __init__(self, marker, keys, steps):
+        self.marker = marker
+        self.keys = keys
+        self.steps = steps
+
+
+def workflow_shape(text):
+    lines = text.splitlines()
+    # A generation marker, not just any leading comment: a fork of somebody
+    # else's workflow opens with a paragraph, and calling that a version makes
+    # the report unreadable.
+    first = re.match(r"#\s*(\w+ v\d+)\s*$", lines[0]) if lines else None
+    marker = first.group(1) if first else "unversioned"
+    keys, steps = [], []
+    # The matrix is the one part of the preamble the template hands to the
+    # project outright ("other items may be listed here as well"), so its
+    # contents are skipped rather than compared.
+    skip_below = None
+    step_indent = None
+    in_steps = False
+    for line in lines[1:]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if in_steps:
+            m = re.match(r"-\s+(?:name|uses):\s*(.+)", stripped)
+            # Only at the step's own indent: a `run:` body may contain
+            # anything, including something that looks like a list item.
+            if m and step_indent in (None, indent):
+                step_indent = indent
+                steps.append(m.group(1).strip())
+            continue
+        if skip_below is not None:
+            if indent > skip_below:
+                continue
+            skip_below = None
+        if stripped == "steps:":
+            in_steps = True
+            continue
+        key = stripped.split(":")[0].strip()
+        if key:
+            keys.append(key)
+        if stripped == "strategy:":
+            skip_below = indent
+    return Shape(marker, keys, steps)
 
 
 # --------------------------------------------------------------------------

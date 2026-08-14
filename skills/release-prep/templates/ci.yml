@@ -1,4 +1,8 @@
 # matrix v11
+# The marker above is the generation. Bump it in a project's copy only when
+# this template has been merged forward into it — that is the only record that
+# the reconciliation happened. Steps and matrix entries of the project's own
+# are expected and are not drift; dropping one of the template's is.
 on: [push,pull_request]
 jobs:
   ci:

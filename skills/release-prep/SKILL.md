@@ -85,6 +85,21 @@ something:
 Both comparison scripts fall back to an empty baseline when the repository has
 no tags, so they work for a first release.
 
+## The CI template is a generation, not a file
+
+`ci-template` does not compare bytes. A project is expected to add steps and
+matrix entries of its own — installing a sibling tool, widening the matrix,
+raising `timeout-minutes` where the template says to. What it may not do is
+silently fall behind or quietly drop a step.
+
+So the check asks three narrower questions: does the `# matrix vN` marker match
+the template's, is every template step and job-level key still present, and
+what has the project added? The marker is the whole contract — **bumping it is
+how you record that you merged this generation forward**, and nothing else in
+the file can carry that claim. Merge the template in, keep everything the
+project added, bump the marker; the check then reads ok and lists the extra
+steps rather than asking about them again.
+
 ## Documentation, in two directions
 
 `docs-assets` and `readme-sync` encode a convention worth knowing, because
