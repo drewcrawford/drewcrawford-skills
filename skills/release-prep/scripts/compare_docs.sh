@@ -4,10 +4,16 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: compare_docs.sh [OPTIONS] [TAG]
+Usage: compare_docs.sh [OPTIONS] [BASELINE]
 
-Compare rustdoc JSON at TAG with the current working tree without stashing
-changes or switching the user's checkout.
+Compare rustdoc JSON at BASELINE with the current working tree without stashing
+changes or switching the user's checkout. BASELINE is any tag or commit-ish and
+defaults to the newest tag.
+
+If the repository has no tags, or the crate does not exist at BASELINE, the
+comparison falls back to an empty baseline and reports every documented item as
+new. That is the expected result for a first release; do not improvise a
+substitute baseline.
 
 Options:
   --root PATH       Crate directory (default: cwd)
@@ -39,7 +45,7 @@ while [ "$#" -gt 0 ]; do
         -h|--help) usage; exit 0 ;;
         -*) echo "Error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
         *)
-            [ -z "$tag" ] || { echo "Error: only one TAG may be supplied" >&2; usage >&2; exit 2; }
+            [ -z "$tag" ] || { echo "Error: only one BASELINE may be supplied" >&2; usage >&2; exit 2; }
             tag=$1
             shift
             ;;
@@ -50,12 +56,15 @@ done
 root=$(cd "$root" && pwd)
 repo_root=$(git -C "$root" rev-parse --show-toplevel)
 prefix=$(git -C "$root" rev-parse --show-prefix)
+empty_baseline=
 if [ -z "$tag" ]; then
     tag=$(git -C "$root" tag --sort=-v:refname | head -1)
-    [ -n "$tag" ] || { echo "Error: no tags found in repository" >&2; exit 1; }
+    [ -n "$tag" ] || empty_baseline="the repository has no tags"
 fi
-git -C "$root" rev-parse --verify "$tag^{commit}" >/dev/null 2>&1 ||
-    { echo "Error: tag or commit not found: $tag" >&2; exit 2; }
+if [ -n "$tag" ]; then
+    git -C "$root" rev-parse --verify "$tag^{commit}" >/dev/null 2>&1 ||
+        { echo "Error: tag or commit not found: $tag" >&2; exit 2; }
+fi
 
 command -v jq >/dev/null 2>&1 || { echo "Error: jq is required" >&2; exit 1; }
 
@@ -70,10 +79,14 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-git -C "$repo_root" worktree add --detach "$worktree" "$tag" >/dev/null
-worktree_added=true
-old_root=${worktree}/${prefix%/}
-old_root=${old_root%/}
+if [ -z "$empty_baseline" ]; then
+    git -C "$repo_root" worktree add --detach "$worktree" "$tag" >/dev/null
+    worktree_added=true
+    old_root=${worktree}/${prefix%/}
+    old_root=${old_root%/}
+    [ -f "$old_root/Cargo.toml" ] ||
+        empty_baseline="the crate does not exist at $tag"
+fi
 
 build_docs() {
     local crate_root=$1
@@ -105,11 +118,18 @@ filter_docs() {
     ' "$1" >"$2"
 }
 
-echo "Building documentation at $tag..." >&2
-build_docs "$old_root" "$temp_root/old_raw.json"
+if [ -n "$empty_baseline" ]; then
+    old_label="empty baseline"
+    echo "Note: $empty_baseline; comparing against an empty baseline, so every documented item is reported as new. Pass a tag or commit to choose a different baseline." >&2
+    printf '[\n]\n' >"$temp_root/old_docs.json"
+else
+    old_label=$tag
+    echo "Building documentation at $tag..." >&2
+    build_docs "$old_root" "$temp_root/old_raw.json"
+    filter_docs "$temp_root/old_raw.json" "$temp_root/old_docs.json"
+fi
 echo "Building documentation from the current working tree..." >&2
 build_docs "$root" "$temp_root/new_raw.json"
-filter_docs "$temp_root/old_raw.json" "$temp_root/old_docs.json"
 filter_docs "$temp_root/new_raw.json" "$temp_root/new_docs.json"
 
 if [ -n "$output_dir" ]; then
@@ -119,4 +139,4 @@ if [ -n "$output_dir" ]; then
     echo "Saved comparison inputs to $output_dir" >&2
 fi
 
-diff -u "$temp_root/old_docs.json" "$temp_root/new_docs.json" || true
+diff -u -L "$old_label" -L "working tree" "$temp_root/old_docs.json" "$temp_root/new_docs.json" || true

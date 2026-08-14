@@ -4,10 +4,16 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: compare_api.sh [OPTIONS] [TAG]
+Usage: compare_api.sh [OPTIONS] [BASELINE]
 
-Compare a Rust crate's public API at TAG with the current working tree without
-stashing changes or switching the user's checkout.
+Compare a Rust crate's public API at BASELINE with the current working tree
+without stashing changes or switching the user's checkout. BASELINE is any tag
+or commit-ish and defaults to the newest tag.
+
+If the repository has no tags, or the crate does not exist at BASELINE, the
+comparison falls back to an empty baseline and reports the entire current
+public API as new. That is the expected result for a first release; do not
+improvise a substitute baseline.
 
 Options:
   --root PATH       Crate directory (default: cwd)
@@ -39,7 +45,7 @@ while [ "$#" -gt 0 ]; do
         -h|--help) usage; exit 0 ;;
         -*) echo "Error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
         *)
-            [ -z "$tag" ] || { echo "Error: only one TAG may be supplied" >&2; usage >&2; exit 2; }
+            [ -z "$tag" ] || { echo "Error: only one BASELINE may be supplied" >&2; usage >&2; exit 2; }
             tag=$1
             shift
             ;;
@@ -50,12 +56,15 @@ done
 root=$(cd "$root" && pwd)
 repo_root=$(git -C "$root" rev-parse --show-toplevel)
 prefix=$(git -C "$root" rev-parse --show-prefix)
+empty_baseline=
 if [ -z "$tag" ]; then
     tag=$(git -C "$root" tag --sort=-v:refname | head -1)
-    [ -n "$tag" ] || { echo "Error: no tags found in repository" >&2; exit 1; }
+    [ -n "$tag" ] || empty_baseline="the repository has no tags"
 fi
-git -C "$root" rev-parse --verify "$tag^{commit}" >/dev/null 2>&1 ||
-    { echo "Error: tag or commit not found: $tag" >&2; exit 2; }
+if [ -n "$tag" ]; then
+    git -C "$root" rev-parse --verify "$tag^{commit}" >/dev/null 2>&1 ||
+        { echo "Error: tag or commit not found: $tag" >&2; exit 2; }
+fi
 
 temp_root=$(mktemp -d)
 worktree=$temp_root/worktree
@@ -68,10 +77,14 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-git -C "$repo_root" worktree add --detach "$worktree" "$tag" >/dev/null
-worktree_added=true
-old_root=${worktree}/${prefix%/}
-old_root=${old_root%/}
+if [ -z "$empty_baseline" ]; then
+    git -C "$repo_root" worktree add --detach "$worktree" "$tag" >/dev/null
+    worktree_added=true
+    old_root=${worktree}/${prefix%/}
+    old_root=${old_root%/}
+    [ -f "$old_root/Cargo.toml" ] ||
+        empty_baseline="the crate does not exist at $tag"
+fi
 old_file=$temp_root/old.txt
 new_file=$temp_root/new.txt
 
@@ -80,8 +93,15 @@ if [ "$abbreviated" = true ]; then
     omit=(--omit blanket-impls,auto-trait-impls,auto-derived-impls)
 fi
 
-echo "Building public API at $tag..." >&2
-(cd "$old_root" && cargo public-api "${omit[@]}") >"$old_file"
+if [ -n "$empty_baseline" ]; then
+    old_label="empty baseline"
+    echo "Note: $empty_baseline; comparing against an empty baseline, so the whole public API is reported as new. Pass a tag or commit to choose a different baseline." >&2
+    : >"$old_file"
+else
+    old_label=$tag
+    echo "Building public API at $tag..." >&2
+    (cd "$old_root" && cargo public-api "${omit[@]}") >"$old_file"
+fi
 echo "Building public API from the current working tree..." >&2
 (cd "$root" && cargo public-api "${omit[@]}") >"$new_file"
 
@@ -92,4 +112,4 @@ if [ -n "$output_dir" ]; then
     echo "Saved comparison inputs to $output_dir" >&2
 fi
 
-diff -u "$old_file" "$new_file" || true
+diff -u -L "$old_label" -L "working tree" "$old_file" "$new_file" || true

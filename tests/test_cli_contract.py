@@ -240,6 +240,65 @@ class InterfaceContractTests(unittest.TestCase):
                     ).stdout
                     self.assertEqual(worktrees.count("worktree "), 1)
 
+    def test_comparison_tools_fall_back_to_an_empty_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            repo = temp / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+            (repo / "Cargo.toml").write_text(
+                '[package]\nname = "demo"\nversion = "0.1.0"\n', encoding="utf-8"
+            )
+            (repo / "marker").write_text("only\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "first"], check=True)
+
+            bin_dir = temp / "bin"
+            bin_dir.mkdir()
+            cargo = bin_dir / "cargo"
+            cargo.write_text(
+                "#!/bin/sh\n"
+                "set -eu\n"
+                "if [ \"$1\" = public-api ]; then cat marker; exit 0; fi\n"
+                "if [ \"$1\" = metadata ]; then\n"
+                "  printf '{\"packages\":[{\"manifest_path\":\"%s/Cargo.toml\",\"name\":\"demo\"}],\"target_directory\":\"%s/target\"}\\n' \"$PWD\" \"$PWD\"\n"
+                "  exit 0\n"
+                "fi\n"
+                "if [ \"$1\" = +nightly ] && [ \"$2\" = rustdoc ]; then\n"
+                "  mkdir -p target/doc\n"
+                "  value=$(cat marker)\n"
+                "  printf '{\"index\":{\"1\":{\"name\":\"Thing\",\"docs\":\"%s docs\",\"inner\":{\"struct\":{}}}}}\\n' \"$value\" > target/doc/demo.json\n"
+                "  exit 0\n"
+                "fi\n"
+                "echo unsupported cargo invocation >&2\nexit 2\n",
+                encoding="utf-8",
+            )
+            cargo.chmod(0o755)
+            env = {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", "")}
+
+            for script, added in (
+                (ROOT / "skills/changelog/scripts/compare_api.sh", "+only"),
+                (ROOT / "skills/release-prep/scripts/compare_api.sh", "+only"),
+                (ROOT / "skills/release-prep/scripts/compare_docs.sh", '+    "name": "struct::Thing"'),
+            ):
+                with self.subTest(script=script):
+                    command = [str(script), "--root", str(repo)]
+                    if script.name == "compare_docs.sh":
+                        command.append("--quiet")
+                    result = run(command, temp, env=env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("empty baseline", result.stderr)
+                    self.assertIn("--- empty baseline", result.stdout)
+                    self.assertIn(added, result.stdout)
+                    removals = [
+                        line
+                        for line in result.stdout.splitlines()
+                        if line.startswith("-") and not line.startswith("---")
+                    ]
+                    self.assertEqual(removals, [])
+
 
 if __name__ == "__main__":
     unittest.main()

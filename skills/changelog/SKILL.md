@@ -26,6 +26,9 @@ First, we want to identify the last release.  This is probably in a tag:
 LAST_RELEASE=`git tag --sort=-v:refname | head -1`
 ```
 
+If that comes back empty there is no previous release, so the changelog covers
+the entire history — read every commit instead of a range.
+
 Then, let's read the recent commits to understand the changes:
 
 ```bash
@@ -52,6 +55,11 @@ generate a list of public API changes.
 ```bash
 scripts/compare_api.sh
 ```
+
+It defaults to the newest tag as its baseline. With no tags, it says so and
+compares against an empty baseline, listing the whole public API as new — the
+right answer for a first release. Take that output as given rather than picking
+a substitute baseline of your own.
 
 ## Common Tasks
 
