@@ -794,7 +794,7 @@ def audit_api(crate, lines):
 
     hard, soft = [], []
     for name, info in decls.items():
-        traits = impls.get(name, set())
+        traits = traits_for(name, impls)
         # A trait is not a value, so it has nothing to format.
         if info["kind"] != "trait" and "Debug" not in traits:
             hard.append(f"{name}: no Debug impl")
@@ -804,11 +804,39 @@ def audit_api(crate, lines):
             soft.append(f"{name}: public enum is not #[non_exhaustive] — deliberate?")
         if "Eq" in traits and "Hash" not in traits:
             soft.append(f"{name}: Eq without Hash, so it cannot key a map — deliberate?")
-    for ref in sorted(referenced - set(decls)):
+    declared_names = {leaf(d) for d in decls}
+    for ref in sorted(referenced):
         # `Foo::Bar` is a variant of a declared type, not a type of its own.
-        if ref.rsplit("::", 1)[0] not in decls:
-            hard.append(f"{ref}: reachable through the public API but never exported")
+        if leaf(ref) in declared_names or leaf(ref.rsplit("::", 1)[0]) in declared_names:
+            continue
+        hard.append(f"{ref}: reachable through the public API but never exported")
     return hard, soft
+
+
+def leaf(path):
+    return path.rsplit("::", 1)[-1]
+
+
+def traits_for(name, impls):
+    """Every trait implemented for a type, under any of the paths it appears at.
+
+    `cargo public-api` prints a re-exported type's declaration at the exported
+    path and its impls at the canonical one — and a type re-exported into two
+    modules appears three times over. Matching on paths therefore reports
+    re-exports as missing every trait they have, which is how this check first
+    accused five perfectly well-behaved types of lacking `Debug`.
+
+    Grouping by the last path segment resolves that. It conflates two distinct
+    types that share a name in different modules, so a trait one of them
+    implements is credited to both — a false negative. For a filter whose job
+    is to narrow what a person reads, missing something beats crying wolf.
+    """
+    name = leaf(name)
+    found = set()
+    for path, implemented in impls.items():
+        if leaf(path) == name:
+            found |= implemented
+    return found
 
 check_documentation = judgment(
     "documentation",
