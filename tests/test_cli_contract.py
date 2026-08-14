@@ -180,6 +180,61 @@ class InterfaceContractTests(unittest.TestCase):
             self.assertEqual(apply.returncode, 0, apply.stderr)
             self.assertTrue(target.read_text(encoding="utf-8").startswith("// SPDX-License-Identifier: MIT"))
 
+    def test_spdx_runs_from_a_virtual_workspace_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nmembers = ["crates/*"]\n\n'
+                '[workspace.package]\nlicense = "MIT OR Apache-2.0"\n',
+                encoding="utf-8",
+            )
+            for name, manifest in (
+                ("inherits", '[package]\nname = "inherits"\nlicense.workspace = true\n'),
+                ("owns", '[package]\nname = "owns"\nlicense = "MIT"\n'),
+            ):
+                crate = root / "crates" / name
+                (crate / "src").mkdir(parents=True)
+                (crate / "Cargo.toml").write_text(manifest, encoding="utf-8")
+                (crate / "src/lib.rs").write_text(f"pub fn {name}() {{}}\n", encoding="utf-8")
+
+            spdx = str(ROOT / "skills/release-prep/scripts/spdx")
+            check = run([spdx], root)
+            self.assertEqual(check.returncode, 1, check.stderr)
+            self.assertIn("crates/inherits/src/lib.rs", check.stdout)
+            apply = run([spdx, "--apply"], root)
+            self.assertEqual(apply.returncode, 0, apply.stderr)
+            self.assertTrue(
+                (root / "crates/inherits/src/lib.rs")
+                .read_text(encoding="utf-8")
+                .startswith("// SPDX-License-Identifier: MIT OR Apache-2.0")
+            )
+            self.assertTrue(
+                (root / "crates/owns/src/lib.rs")
+                .read_text(encoding="utf-8")
+                .startswith("// SPDX-License-Identifier: MIT\n")
+            )
+            self.assertEqual(run([spdx], root).returncode, 0)
+
+    def test_spdx_reports_crates_with_no_discoverable_license(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Cargo.toml").write_text('[package]\nname = "bare"\n', encoding="utf-8")
+            (root / "src").mkdir()
+            source = root / "src/lib.rs"
+            source.write_text("pub fn bare() {}\n", encoding="utf-8")
+
+            spdx = str(ROOT / "skills/release-prep/scripts/spdx")
+            unresolved = run([spdx, "--apply"], root)
+            self.assertEqual(unresolved.returncode, 2)
+            self.assertIn("no license", unresolved.stderr)
+            self.assertEqual(source.read_text(encoding="utf-8"), "pub fn bare() {}\n")
+
+            override = run([spdx, "--apply", "--spdx", "MIT"], root)
+            self.assertEqual(override.returncode, 0, override.stderr)
+            self.assertTrue(
+                source.read_text(encoding="utf-8").startswith("// SPDX-License-Identifier: MIT\n")
+            )
+
     def test_comparison_tools_preserve_dirty_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)

@@ -3,19 +3,105 @@
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
+SPDX_PREFIX = "// SPDX-License-Identifier:"
+SECTION_RE = re.compile(r"^\s*\[\[?([^\[\]]+)\]\]?\s*$")
+QUOTED_RE = re.compile(r"""^(['"])(.*?)\1""")
 
-def find_project_spdx(root: Path):
-    for relative in ("lib.rs", "src/lib.rs", "src/main.rs"):
-        candidate = root / relative
-        if not candidate.is_file():
-            continue
-        for line in candidate.read_text(encoding="utf-8").splitlines():
-            if line.strip().startswith("// SPDX-License-Identifier:"):
-                return line.strip()
+
+def read_text(path: Path):
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def parse_sections(text):
+    sections = {"": []}
+    current = ""
+    for line in text.splitlines():
+        match = SECTION_RE.match(line)
+        if match:
+            current = match.group(1).strip()
+            sections.setdefault(current, [])
+        else:
+            sections[current].append(line)
+    return sections
+
+
+def section_value(sections, section, key):
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*(.+?)\s*$")
+    for line in sections.get(section, []):
+        match = pattern.match(line)
+        if match:
+            return match.group(1)
     return None
+
+
+def quoted(raw):
+    match = QUOTED_RE.match(raw) if raw else None
+    return match.group(2) if match else None
+
+
+def manifest_license(path: Path):
+    """Return the license this manifest states for its own [package], if any."""
+    text = read_text(path)
+    if text is None:
+        return None
+    return quoted(section_value(parse_sections(text), "package", "license"))
+
+
+def workspace_license(path: Path):
+    """Return the license a manifest offers members through [workspace.package]."""
+    text = read_text(path)
+    if text is None:
+        return None
+    return quoted(section_value(parse_sections(text), "workspace.package", "license"))
+
+
+def is_package_manifest(path: Path):
+    text = read_text(path)
+    return text is not None and "package" in parse_sections(text)
+
+
+def find_package_dir(path: Path, root: Path):
+    """Return the crate directory owning a file, or root when nothing claims it."""
+    directory = path.parent
+    while True:
+        if is_package_manifest(directory / "Cargo.toml"):
+            return directory
+        if directory == root or directory == directory.parent:
+            return root
+        directory = directory.parent
+
+
+def header_license(paths):
+    """Return an identifier taken from a header some sibling file already has."""
+    for path in paths:
+        text = read_text(path)
+        for line in (text or "").splitlines():
+            stripped = line.strip()
+            if stripped.startswith(SPDX_PREFIX):
+                return stripped[len(SPDX_PREFIX):].strip()
+    return None
+
+
+def resolve_license(package_dir: Path, paths):
+    """Resolve a crate's license from its manifest, its workspace, then its headers."""
+    identifier = manifest_license(package_dir / "Cargo.toml")
+    if identifier:
+        return identifier, "Cargo.toml"
+    for ancestor in [package_dir, *package_dir.parents]:
+        identifier = workspace_license(ancestor / "Cargo.toml")
+        if identifier:
+            return identifier, "workspace"
+    identifier = header_license(paths)
+    if identifier:
+        return identifier, "header"
+    return None, None
 
 
 def has_spdx(lines):
@@ -23,7 +109,7 @@ def has_spdx(lines):
         stripped = line.strip()
         if not stripped or stripped.startswith("#!"):
             continue
-        return stripped.startswith("// SPDX-License-Identifier:")
+        return stripped.startswith(SPDX_PREFIX)
     return False
 
 
@@ -36,9 +122,10 @@ def insert_spdx(lines, spdx_line):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Check SPDX headers; use --apply to add missing headers.")
-    parser.add_argument("root", nargs="?", default=".", help="crate directory (default: cwd)")
+    parser.add_argument("root", nargs="?", default=".", help="crate or workspace directory (default: cwd)")
     parser.add_argument("--apply", action="store_true", help="write missing headers")
     parser.add_argument("--dry-run", action="store_true", help="explicitly select check-only mode")
+    parser.add_argument("--spdx", help="license identifier to use for every crate, e.g. 'MIT OR Apache-2.0'")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
     if args.apply and args.dry_run:
@@ -47,27 +134,51 @@ def main(argv=None):
     root = Path(args.root).resolve()
     if not root.is_dir():
         parser.error(f"root is not a directory: {root}")
-    spdx_line = find_project_spdx(root)
-    if not spdx_line:
-        print("Error: no SPDX-License-Identifier found in lib.rs, src/lib.rs, or src/main.rs.", file=sys.stderr)
-        return 2
+    override = args.spdx.split(":", 1)[-1].strip() if args.spdx else None
 
     rust_files = sorted(
         path for path in root.rglob("*.rs")
         if "target" not in path.parts and ".build" not in path.parts
     )
-    missing = []
+    crates = {}
     for path in rust_files:
-        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-        if not has_spdx(lines):
+        crates.setdefault(find_package_dir(path, root), []).append(path)
+
+    packages = []
+    missing = []
+    unresolved = []
+    for package_dir, paths in sorted(crates.items()):
+        if override:
+            identifier, source = override, "argument"
+        else:
+            identifier, source = resolve_license(package_dir, paths)
+        absent = [path for path in paths if not has_spdx(path.read_text(encoding="utf-8").splitlines(keepends=True))]
+        packages.append({
+            "path": str(package_dir.relative_to(root)) or ".",
+            "spdx": identifier,
+            "source": source,
+            "files": len(paths),
+        })
+        if absent and not identifier:
+            unresolved.append(package_dir)
+            continue
+        for path in absent:
             missing.append(path)
             if args.apply:
-                path.write_text("".join(insert_spdx(lines, spdx_line)), encoding="utf-8")
+                lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+                path.write_text("".join(insert_spdx(lines, f"{SPDX_PREFIX} {identifier}")), encoding="utf-8")
 
+    if unresolved:
+        for package_dir in unresolved:
+            print(f"Error: no license for {package_dir}; set `license` in its Cargo.toml or pass --spdx.", file=sys.stderr)
+        return 2
+
+    identifiers = {package["spdx"] for package in packages if package["spdx"]}
     report = {
         "root": str(root),
-        "spdx": spdx_line,
+        "spdx": identifiers.pop() if len(identifiers) == 1 else None,
         "mode": "apply" if args.apply else "check",
+        "packages": packages,
         "missing": [str(path.relative_to(root)) for path in missing],
         "changed": len(missing) if args.apply else 0,
     }
@@ -80,7 +191,7 @@ def main(argv=None):
         if not args.apply:
             print("Run again with --apply to add these headers.")
     else:
-        print(f"All {len(rust_files)} Rust files have SPDX headers.")
+        print(f"All {len(rust_files)} Rust files in {len(packages)} crate(s) have SPDX headers.")
     return 0 if args.apply or not missing else 1
 
 
