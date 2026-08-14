@@ -416,6 +416,11 @@ def crates_io_versions(name):
         return "unknown", None
 
 
+def minor_version(v):
+    parts = v.split(".")
+    return tuple(parts[:2])
+
+
 def check_msrv(ctx):
     declared = {p.get("rust_version") for p in ctx.packages if p.get("rust_version")}
     if not declared:
@@ -424,13 +429,27 @@ def check_msrv(ctx):
     floor = max((EDITION_FLOOR.get(e, "1.85") for e in editions), key=lambda v: tuple(map(int, v.split("."))))
     if not ctx.args.slow:
         return Finding("msrv", SKIP, f"declared {sorted(declared)}; re-run with --slow to verify")
-    out = run(["cargo", "msrv", "find", "--min", floor], ctx.root, timeout=3600)
-    found = re.search(r"MSRV:\s*(\d+\.\d+(?:\.\d+)?)", out.stdout + out.stderr)
+    if run(["cargo", "msrv", "--version"], ctx.root).returncode != 0:
+        return Finding("msrv", SKIP, "cargo-msrv is not installed", ["cargo install cargo-msrv"])
+    # The default human format colours the result even when piped, so the version
+    # arrives wrapped in ANSI escapes that a plain regex reads straight past.
+    # `minimal` prints the bare version and is the format meant to be parsed.
+    out = run(["cargo", "msrv", "find", "--min", floor, "--output-format", "minimal"], ctx.root, timeout=3600)
+    found = re.search(r"^(\d+\.\d+(?:\.\d+)?)$", out.stdout.strip())
     if not found:
-        return Finding("msrv", SKIP, "cargo msrv did not report an MSRV", (out.stdout + out.stderr).splitlines()[-5:])
+        return Finding(
+            "msrv",
+            SKIP,
+            f"cargo msrv reported no MSRV at or above {floor}",
+            (out.stdout + out.stderr).strip().splitlines()[-5:],
+            prompt=f"Run `cargo msrv find --min {floor}` to see which compatibility check failed.",
+        )
     detected = found.group(1)
-    if len(declared) == 1 and next(iter(declared)).startswith(detected):
-        return Finding("msrv", PASS, f"declared {detected} matches detection")
+    # cargo-msrv only tries the newest patch of each minor, so it can report
+    # 1.85.1 for a crate that builds fine on 1.85.0. Minor is the finest
+    # granularity the detection actually distinguishes.
+    if len(declared) == 1 and minor_version(next(iter(declared))) == minor_version(detected):
+        return Finding("msrv", PASS, f"declared {sorted(declared)[0]} matches detected {detected}")
     return Finding(
         "msrv",
         FAIL,

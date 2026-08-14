@@ -7,6 +7,7 @@ fixtures while quietly accusing five well-behaved types of lacking `Debug`.
 
 import importlib.machinery
 import importlib.util
+import types
 import unittest
 from pathlib import Path
 
@@ -115,6 +116,60 @@ class ReadmeTransformTests(unittest.TestCase):
 
     def test_real_drift_survives(self):
         self.assertNotEqual(rp.canonical_blocks(["See the guide"]), rp.canonical_blocks(["See the manual"]))
+
+
+class MsrvTests(unittest.TestCase):
+    """`cargo msrv` output, as it actually arrives when the script captures it.
+
+    The default human format colours the version even with no terminal
+    attached, so the reading came back wrapped in escape codes and the check
+    skipped on a crate whose declaration was correct all along.
+    """
+
+    HUMAN = "   MSRV:                     \x1b[4m\x1b[1m\x1b[32m1.85.1\x1b[39m\x1b[0m\x1b[0m\n"
+
+    def check(self, declared, msrv_stdout, msrv_stderr="", returncode=0, installed=True):
+        def fake_run(cmd, cwd, timeout=None):
+            if cmd[:3] == ["cargo", "msrv", "--version"]:
+                return types.SimpleNamespace(returncode=0 if installed else 101, stdout="", stderr="")
+            return types.SimpleNamespace(returncode=returncode, stdout=msrv_stdout, stderr=msrv_stderr)
+
+        ctx = types.SimpleNamespace(
+            root=Path("."),
+            args=types.SimpleNamespace(slow=True),
+            packages=[{"rust_version": declared, "edition": "2024"}],
+        )
+        real_run, rp.run = rp.run, fake_run
+        try:
+            return rp.check_msrv(ctx)
+        finally:
+            rp.run = real_run
+
+    def test_the_minimal_format_is_what_gets_parsed(self):
+        self.assertEqual(self.check("1.85.1", "1.85.1\n").status, rp.PASS)
+
+    def test_a_coloured_human_reading_is_not_relied_on(self):
+        # If the script ever asks for the human format again, this is the shape
+        # it gets back — and no version comes out of it.
+        self.assertIsNone(rp.re.search(r"^(\d+\.\d+(?:\.\d+)?)$", self.HUMAN.strip()))
+
+    def test_a_patch_the_search_never_tried_is_not_a_mismatch(self):
+        # cargo-msrv checks only the newest patch of each minor, so 1.85.1 is
+        # the reading for anything that builds on 1.85.
+        self.assertEqual(self.check("1.85", "1.85.1\n").status, rp.PASS)
+
+    def test_a_wrong_minor_still_fails(self):
+        self.assertEqual(self.check("1.84", "1.85.1\n").status, rp.FAIL)
+
+    def test_an_uninstalled_cargo_msrv_says_so(self):
+        finding = self.check("1.85.1", "", installed=False)
+        self.assertEqual(finding.status, rp.SKIP)
+        self.assertIn("not installed", finding.summary)
+
+    def test_no_msrv_found_carries_the_command_to_run(self):
+        finding = self.check("1.85.1", "", msrv_stderr="none\n", returncode=1)
+        self.assertEqual(finding.status, rp.SKIP)
+        self.assertIn("cargo msrv find --min 1.85", finding.prompt)
 
 
 if __name__ == "__main__":
