@@ -933,10 +933,6 @@ def check_gate(ctx):
     )
 
 
-def judgment(name, summary, prompt):
-    return lambda ctx: Finding(name, JUDGMENT, summary, prompt=prompt)
-
-
 def check_classification(ctx):
     """Are the crate classified and the repository tagged, and are the slugs real?
 
@@ -1119,20 +1115,60 @@ def traits_for(name, impls):
             found |= implemented
     return found
 
+def check_documentation(ctx):
+    """Ask about the prose when the surface it describes has moved, and not otherwise.
+
+    Whether documentation is *true* is not decidable, but whether there is
+    anything new to be wrong about is. The public API at the last release tag,
+    against the public API now, is that question — and when it comes back empty
+    the docs describe the same surface they were last read against, so there is
+    nothing to re-read. When it comes back with items, the ask names them
+    instead of asking for the whole crate to be read again.
+
+    Rustdoc's own lints cover the other half from underneath: a link to
+    something that no longer exists fails `docs-presence` with a line number.
+    """
+    if not ctx.args.slow:
+        return Finding("documentation", SKIP, "re-run with --slow to compare the public API against the last release")
+    tag = newest_tag(ctx)
+    if not tag:
+        return Finding(
+            "documentation",
+            JUDGMENT,
+            "no release tag to compare against; this is a first release",
+            prompt=(
+                "Read the crate-level docs once against the implementation. There is no "
+                "published baseline, so nothing narrows this."
+            ),
+        )
+    if run(["cargo", "public-api", "--version"], ctx.root).returncode != 0:
+        return Finding("documentation", SKIP, "cargo-public-api is not installed", ["cargo install cargo-public-api"])
+    out = run([str(BUNDLED / "compare_api.sh"), "--abbreviated"], ctx.root, timeout=3600)
+    changed = [
+        l for l in out.stdout.splitlines()
+        if l[:1] in "+-" and not l.startswith(("+++", "---"))
+    ]
+    if not changed:
+        return Finding("documentation", PASS, f"public API unchanged since {tag}")
+    return Finding(
+        "documentation",
+        JUDGMENT,
+        f"{len(changed)} public API item(s) changed since {tag}",
+        changed[:40],
+        prompt=(
+            "Check the crate-level docs against these items specifically: does the prose "
+            "still describe what they do, and does it still name them correctly? Fix what "
+            "has drifted; do not restyle what has not. `scripts/compare_docs.sh` shows the "
+            "same comparison for doc text if the API diff is not enough to decide."
+        ),
+    )
+
+
 def newest_tag(ctx):
     out = git(["tag", "--sort=-v:refname"], ctx.root)
     tags = [t for t in out.stdout.splitlines() if t.strip()]
     return tags[0] if tags else None
 
-
-check_documentation = judgment(
-    "documentation",
-    "documentation accuracy needs reading",
-    "The mechanical checks cover presence, links, assets, and README sync. What is "
-    "left is whether the prose is still true: run `scripts/compare_docs.sh` and "
-    "`scripts/compare_api.sh`, and decide whether recent changes make the crate-level "
-    "docs wrong. Fix what has drifted. Do not restyle what has not.",
-)
 
 def check_changelog(ctx):
     """Is there a section for the version being released, with entries under it?
@@ -1189,13 +1225,97 @@ def changelog_entries(text, version):
     return None
 
 
-check_ci = judgment(
-    "ci",
-    "push and confirm CI on every remote",
-    "For each remote (`git remote`), ensure the tree is clean, push, and wait for its "
-    "CI to finish — the `gitea` and `github` skills poll for you. If a run fails, "
-    "investigate and report the cause, but do not fix it as part of this step.",
-)
+def check_ci(ctx):
+    """Is this exact commit pushed to every remote, and did its CI pass there?
+
+    The step is an action rather than a reading, but its result is a fact both
+    forges will state on request. Asking a model to push, poll, and report back
+    means the answer lives in a conversation; asking the forge means the answer
+    is in the report, with the run number that produced it.
+    """
+    if git(["status", "--porcelain"], ctx.root).stdout.strip():
+        return Finding(
+            "ci",
+            JUDGMENT,
+            "the tree is dirty, so there is nothing to confirm yet",
+            prompt="Commit the outstanding work in logical units, then re-run this check.",
+        )
+    head = git(["rev-parse", "HEAD"], ctx.root).stdout.strip()
+    remotes = [r for r in git(["remote"], ctx.root).stdout.split() if r]
+    if not remotes:
+        return Finding("ci", SKIP, "no git remotes")
+
+    green, unpushed, failed, unknown = [], [], [], []
+    for remote in remotes:
+        url = git(["remote", "get-url", remote], ctx.root).stdout.strip()
+        if not remote_has(ctx, remote, head):
+            unpushed.append(f"{remote}: {head[:8]} is not on {url}")
+            continue
+        status, note = forge_run_status(ctx, remote, url, head)
+        {"success": green, "failed": failed, "unknown": unknown}[status].append(f"{remote}: {note}")
+
+    if failed:
+        return Finding("ci", FAIL, f"CI failed on {len(failed)} remote(s)", failed + green,
+                       prompt="Investigate the failure and report the cause. Do not fix it as part of this step.")
+    if unpushed:
+        return Finding("ci", JUDGMENT, f"{len(unpushed)} remote(s) without this commit", unpushed + green,
+                       prompt="Push to each remote listed and wait for its CI — the `github` and `gitea` skills poll for you.")
+    if unknown:
+        return Finding("ci", JUDGMENT, f"{len(unknown)} remote(s) could not be confirmed", unknown + green,
+                       prompt="Confirm these by hand with the `github` and `gitea` skills; the forge could not be asked here.")
+    return Finding("ci", PASS, f"CI green on {len(green)} remote(s) for {head[:8]}", green)
+
+
+def remote_has(ctx, remote, head):
+    """Is this commit on the remote?
+
+    `ls-remote` is the live answer but only names ref tips, so a commit that is
+    an ancestor of one falls back to whatever the last fetch recorded.
+    """
+    out = git(["ls-remote", remote], ctx.root)
+    if out.returncode == 0 and any(line.split()[:1] == [head] for line in out.stdout.splitlines()):
+        return True
+    return bool(git(["branch", "-r", "--contains", head, "--list", f"{remote}/*"], ctx.root).stdout.strip())
+
+
+def forge_run_status(ctx, remote, url, head):
+    """('success'|'failed'|'unknown', note) for this commit's newest run on a remote."""
+    m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?$", url)
+    if not m:
+        return "unknown", f"cannot parse {url}"
+    owner, repo = m.group(1), m.group(2)
+    if "github.com" in url:
+        out = run(["gh", "run", "list", "--repo", f"{owner}/{repo}", "--commit", head,
+                   "--json", "databaseId,status,conclusion", "--limit", "20"], ctx.root)
+        try:
+            runs = json.loads(out.stdout)
+        except ValueError:
+            return "unknown", f"gh could not list runs ({(out.stderr.strip().splitlines() or [''])[0]})"
+        return summarise_runs(runs, "databaseId")
+    gitea = SKILL_DIR.parent / "gitea" / "scripts" / "gitea_builds.py"
+    if not gitea.is_file():
+        return "unknown", "the gitea skill is not installed alongside this one"
+    if not os.environ.get("GITEA_URL") or not os.environ.get("GITEA_TOKEN"):
+        return "unknown", "GITEA_URL/GITEA_TOKEN are not set"
+    out = run([sys.executable, str(gitea), owner, repo, "--format", "json"], ctx.root, timeout=120)
+    try:
+        runs = [r for r in json.loads(out.stdout) if str(r.get("head_sha") or r.get("sha") or "") == head]
+    except ValueError:
+        return "unknown", f"gitea_builds.py returned no JSON ({(out.stderr.strip().splitlines() or [''])[0]})"
+    return summarise_runs(runs, "id")
+
+
+def summarise_runs(runs, id_key):
+    if not runs:
+        return "unknown", "no run for this commit"
+    newest = runs[0]
+    conclusion = (newest.get("conclusion") or newest.get("status") or "").lower()
+    where = f"run {newest.get(id_key, '?')}"
+    if conclusion in ("success", "completed"):
+        return "success", f"{where} {conclusion}"
+    if conclusion in ("failure", "failed", "cancelled", "timed_out", "startup_failure"):
+        return "failed", f"{where} {conclusion}"
+    return "unknown", f"{where} {conclusion or 'in progress'}"
 
 # Order matters: cheap and structural first, then the things that edit files,
 # then the gate — which has to run after the edits, not before them.

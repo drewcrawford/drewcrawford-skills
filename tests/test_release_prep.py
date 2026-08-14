@@ -299,5 +299,24 @@ Three soundness fixes.
         self.assertIsNone(rp.changelog_entries("## [0.1.30]\n- x\n", "0.1.3"))
 
 
+class ForgeRunTests(unittest.TestCase):
+    def test_the_newest_successful_run_passes(self):
+        status, note = rp.summarise_runs([{"conclusion": "success", "databaseId": 31795701663}], "databaseId")
+        self.assertEqual(status, "success")
+        self.assertIn("31795701663", note)
+
+    def test_a_failure_is_not_an_unknown(self):
+        self.assertEqual(rp.summarise_runs([{"conclusion": "failure", "databaseId": 1}], "databaseId")[0], "failed")
+
+    def test_a_run_still_going_is_unknown_rather_than_green(self):
+        self.assertEqual(
+            rp.summarise_runs([{"conclusion": None, "status": "in_progress", "databaseId": 1}], "databaseId")[0],
+            "unknown",
+        )
+
+    def test_no_run_for_the_commit_is_unknown(self):
+        self.assertEqual(rp.summarise_runs([], "id")[0], "unknown")
+
+
 if __name__ == "__main__":
     unittest.main()
