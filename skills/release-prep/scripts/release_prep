@@ -6,10 +6,13 @@ path that does or does not exist decides it. Those checks belong here, where
 they cost seconds and can be re-run for free, rather than in an agent that
 spends tens of thousands of tokens rediscovering how to run `grep`.
 
-What is left over — is this documentation accurate, does this changelog read
-well, is this the right set of categories — genuinely needs a model, so each
-check that cannot decide on its own emits a prompt naming the work instead of
-guessing.
+What is left over genuinely needs a model, so each check that cannot decide on
+its own emits a prompt naming the work instead of guessing. A check earns that
+prompt: asking on every run regardless of state is not a judgment call, it is a
+reminder, and a reminder that cannot be answered is one a reader learns to skip
+past. So an ask fires on evidence — a changelog with no section for the version
+being released, a public API that moved since the last tag, a commit no remote
+has seen — and the work that answers it is what makes it stop.
 
 Exit status is 0 when nothing needs attention and 1 when something does, so
 this doubles as a gate.
@@ -448,23 +451,89 @@ def check_version(ctx):
             PASS,
             f"never published; {ctx.packages[0]['version'] if ctx.packages else '?'} is a first release",
         )
-    detail = [
-        f"{n}: local {ver(ctx, n)}, crates.io {(info['version'] if info else 'unpublished')}"
-        for n, (s, info) in state.items()
+    # Three separate questions, all answerable. Is the local version behind what
+    # is published: always wrong. Is it the same: wrong only if there is
+    # something to release, since a repository sitting at its published version
+    # with nothing new is a repository between releases, not a defect. Is the
+    # bump big enough: `cargo semver-checks` exists to answer exactly that, and
+    # asking a model to run it and read the output is asking it to be a shell.
+    lower, same = [], []
+    for n, (s, info) in state.items():
+        if s != "published":
+            continue
+        local, published = version_tuple(ver(ctx, n)), version_tuple(info["version"])
+        where = f"{n}: local {ver(ctx, n)}, crates.io {info['version']}"
+        if local < published:
+            lower.append(where)
+        elif local == published:
+            same.append(where)
+    tag = newest_tag(ctx)
+    unreleased = git(["log", "--oneline", f"{tag}..HEAD" if tag else "HEAD"], ctx.root).stdout.split("\n")
+    unreleased = [c for c in unreleased if c.strip()]
+    if lower or (same and unreleased):
+        since = f"{len(unreleased)} commit(s) since {tag}" if tag else "no release tag to measure against"
+        return Finding(
+            "version",
+            FAIL,
+            f"{len(lower) + len(same)} crate(s) not bumped past what is published",
+            lower + same + [since],
+            prompt=(
+                "Bump the version in Cargo.toml, in [workspace.dependencies] if one is "
+                "declared there, and in the CHANGELOG heading. `cargo publish` rejects a "
+                "version that already exists."
+            ),
+        )
+    if same:
+        return Finding("version", PASS, f"nothing to release; {len(same)} crate(s) match crates.io", same)
+    ahead = [
+        f"{n}: {ver(ctx, n)} over {info['version']}" for n, (s, info) in state.items() if s == "published"
     ]
+    if not ctx.args.slow:
+        return Finding("version", PASS, f"{len(ahead)} crate(s) bumped past crates.io", ahead)
+    if run(["cargo", "semver-checks", "--version"], ctx.root).returncode != 0:
+        return Finding(
+            "version",
+            PASS,
+            f"{len(ahead)} crate(s) bumped; cargo-semver-checks is not installed, so the bump size is unverified",
+            ahead + ["cargo install cargo-semver-checks"],
+        )
+    out = run(["cargo", "semver-checks"], ctx.root, timeout=3600)
+    if out.returncode == 0:
+        return Finding("version", PASS, "bumped, and cargo semver-checks accepts the bump", ahead)
+    text = out.stdout + out.stderr
+    # A non-zero exit is not by itself a verdict. cargo-semver-checks reads
+    # rustdoc's JSON, whose format is versioned and moves with the toolchain, so
+    # a tool a few releases behind the compiler exits non-zero having checked
+    # nothing. Reporting that as "your bump is too small" sends someone to
+    # change a version number over a stale binary.
+    if "semver requires new" not in text:
+        return Finding(
+            "version",
+            PASS,
+            f"{len(ahead)} crate(s) bumped; cargo semver-checks did not complete, so the bump size is unverified",
+            ahead + ["cargo semver-checks did not complete:"] + text.strip().splitlines()[-6:],
+        )
     return Finding(
         "version",
-        JUDGMENT,
-        "published before; the version bump needs checking",
-        detail,
+        FAIL,
+        "cargo semver-checks rejects the bump",
+        text.strip().splitlines()[-20:],
         prompt=(
-            "Run `cargo semver-checks`. If it reports required major changes, bump the "
-            "major component (0.1.0 -> 0.2.0, 1.0.0 -> 2.0.0); otherwise bump the minor "
-            "(0.1.0 -> 0.1.1, 1.0.0 -> 1.1.0). Update the version in Cargo.toml, the "
-            "version in [workspace.dependencies] if one is declared there, and the "
-            "CHANGELOG heading to match."
+            "The listed changes require a larger bump than the one taken: bump the major "
+            "component (0.1.0 -> 0.2.0, 1.0.0 -> 2.0.0) rather than the minor, and update "
+            "the CHANGELOG heading to match. If a change is not meant to be breaking, the "
+            "other repair is to put back what was removed."
         ),
     )
+
+
+def version_tuple(v):
+    """Comparable form of a version. A pre-release suffix sorts below its release."""
+    core, _, pre = str(v).partition("-")
+    parts = [int(p) if p.isdigit() else 0 for p in core.split(".")]
+    while len(parts) < 3:
+        parts.append(0)
+    return (*parts[:3], 0 if pre else 1)
 
 
 def ver(ctx, name):
@@ -868,16 +937,86 @@ def judgment(name, summary, prompt):
     return lambda ctx: Finding(name, JUDGMENT, summary, prompt=prompt)
 
 
-check_classification = judgment(
-    "classification",
-    "crates.io categories and GitHub topics need a look",
-    "Decide how this project should be classified, then apply it in both places. "
-    "Categories: at most 5, and every slug must appear in "
-    "https://crates.io/api/v1/category_slugs. Topics: `gh repo view --json "
-    "repositoryTopics`, then `gh repo edit --add-topic`/`--remove-topic`. They "
-    "answer the same question for two registries, so decide once. Change them "
-    "only if the project has actually moved.",
-)
+def check_classification(ctx):
+    """Are the crate classified and the repository tagged, and are the slugs real?
+
+    Asking every release whether the categories are still the right ones gets
+    the same answer every release, because the instruction is to change them
+    only if the project has actually moved. What is worth asking mechanically
+    is whether they are there and whether crates.io will accept them: an
+    invented slug is not a matter of taste, it is a rejected `cargo publish`.
+    """
+    slugs = crates_io_category_slugs()
+    problems = []
+    for pkg in ctx.publishable():
+        cats, words = pkg.get("categories") or [], pkg.get("keywords") or []
+        if not cats:
+            problems.append(f"{pkg['name']}: no categories")
+        if len(cats) > 5:
+            problems.append(f"{pkg['name']}: {len(cats)} categories, crates.io allows 5")
+        if len(words) > 5:
+            problems.append(f"{pkg['name']}: {len(words)} keywords, crates.io allows 5")
+        if not words:
+            problems.append(f"{pkg['name']}: no keywords")
+        for c in cats if slugs else []:
+            if c not in slugs:
+                problems.append(f"{pkg['name']}: '{c}' is not a crates.io category")
+
+    topics, note = github_topics(ctx)
+    if topics is not None and not topics:
+        problems.append("no GitHub topics")
+    if problems:
+        return Finding(
+            "classification",
+            FAIL,
+            f"{len(problems)} classification problem(s)",
+            problems,
+            prompt=(
+                "Categories come from https://crates.io/api/v1/category_slugs and an "
+                "invented one is rejected at publish time. Topics are `gh repo edit "
+                "--add-topic`. They answer the same question for two registries, so "
+                "decide once and apply it in both."
+            ),
+        )
+    counts = [f"{p['name']}: {len(p.get('categories') or [])} categories, {len(p.get('keywords') or [])} keywords" for p in ctx.publishable()]
+    return Finding(
+        "classification",
+        PASS,
+        f"categories valid, {len(topics) if topics is not None else 'unread'} GitHub topic(s)",
+        counts + ([note] if note else []),
+    )
+
+
+_CATEGORY_SLUGS = []
+
+
+def crates_io_category_slugs():
+    """Every slug crates.io will accept, or None if it could not be asked."""
+    if not _CATEGORY_SLUGS:
+        out = run(
+            [
+                "curl", "-sS", "--max-time", "20",
+                "-H", "User-Agent: release-prep (https://github.com/drewcrawford/skills)",
+                "https://crates.io/api/v1/category_slugs",
+            ],
+            Path.cwd(),
+        )
+        try:
+            _CATEGORY_SLUGS.append({c["slug"] for c in json.loads(out.stdout)["category_slugs"]})
+        except (ValueError, KeyError, TypeError):
+            _CATEGORY_SLUGS.append(None)
+    return _CATEGORY_SLUGS[0]
+
+
+def github_topics(ctx):
+    """(topics, note). None when GitHub could not be asked, which is not a defect."""
+    out = run(["gh", "repo", "view", "--json", "repositoryTopics"], ctx.root)
+    if out.returncode != 0:
+        return None, "GitHub topics unread: " + (out.stderr.strip().splitlines() or ["gh failed"])[0]
+    try:
+        return [t["name"] for t in json.loads(out.stdout).get("repositoryTopics") or []], None
+    except ValueError:
+        return None, "GitHub topics unread: gh returned no JSON"
 
 TRAIT_PROMPT = (
     "Decide each of these. Then, for the types not listed, consider by hand whether "
@@ -980,6 +1119,12 @@ def traits_for(name, impls):
             found |= implemented
     return found
 
+def newest_tag(ctx):
+    out = git(["tag", "--sort=-v:refname"], ctx.root)
+    tags = [t for t in out.stdout.splitlines() if t.strip()]
+    return tags[0] if tags else None
+
+
 check_documentation = judgment(
     "documentation",
     "documentation accuracy needs reading",
@@ -989,12 +1134,60 @@ check_documentation = judgment(
     "docs wrong. Fix what has drifted. Do not restyle what has not.",
 )
 
-check_changelog = judgment(
-    "changelog",
-    "the changelog needs updating",
-    "Use the `changelog` skill. Document every user-facing commit since the last "
-    "release; omit pure refactors and CI chores. Match the file's existing voice.",
-)
+def check_changelog(ctx):
+    """Is there a section for the version being released, with entries under it?
+
+    Whether the entries are *good* needs a reader; whether they exist does not,
+    and a release whose changelog still stops at the last version is the common
+    failure by a wide margin.
+    """
+    path = ctx.root / "CHANGELOG.md"
+    if not path.is_file():
+        return Finding("changelog", FAIL, "no CHANGELOG.md", prompt="Use the `changelog` skill to start one.")
+    text = path.read_text(encoding="utf-8", errors="replace")
+    missing, empty, present = [], [], []
+    for version in sorted({p["version"] for p in ctx.publishable()}):
+        entries = changelog_entries(text, version)
+        if entries is None:
+            missing.append(version)
+        elif not entries:
+            empty.append(version)
+        else:
+            present.append(f"{version}: {len(entries)} entries")
+    if missing or empty:
+        return Finding(
+            "changelog",
+            FAIL,
+            f"{len(missing)} version(s) with no section, {len(empty)} with an empty one",
+            [f"no section: {v}" for v in missing] + [f"empty section: {v}" for v in empty],
+            prompt=(
+                "Use the `changelog` skill. Document every user-facing commit since the "
+                "last release; omit pure refactors and CI chores. Match the file's "
+                "existing voice."
+            ),
+        )
+    return Finding("changelog", PASS, "every released version has a section", present)
+
+
+def changelog_entries(text, version):
+    """Bullet lines under `version`'s heading. None when it has no heading at all."""
+    heading = re.compile(r"^(#{1,4})\s*\[?" + re.escape(version) + r"\]?(\s|$)")
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        m = heading.match(line)
+        if not m:
+            continue
+        depth = len(m.group(1))
+        entries = []
+        for rest in lines[i + 1 :]:
+            deeper = re.match(r"^(#{1,4})\s", rest)
+            if deeper and len(deeper.group(1)) <= depth:
+                break
+            if rest.lstrip().startswith(("-", "*")):
+                entries.append(rest.strip())
+        return entries
+    return None
+
 
 check_ci = judgment(
     "ci",

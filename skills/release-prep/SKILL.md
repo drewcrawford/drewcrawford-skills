@@ -29,6 +29,12 @@ Every check reports one of four verdicts:
 Exit status is 0 only when nothing is outstanding, so the script doubles as the
 gate: **work until it exits 0.**
 
+Every `ask` fires on evidence and stops when the evidence changes — a changelog
+missing a section for the version being released, a public API that moved since
+the last tag, a commit no remote has seen. None of them is a standing reminder,
+so `ask` on a re-run means something is genuinely still outstanding rather than
+that the check has no opinion.
+
 ## How to work through it
 
 1. Run `scripts/release_prep`. Read the whole report before starting — later

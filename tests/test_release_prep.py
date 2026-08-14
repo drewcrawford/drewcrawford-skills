@@ -246,5 +246,58 @@ error: could not document `msrvtest`
         self.assertEqual(rp.rustdoc_errors("Documenting c v0.1.0\n    Finished\n"), [])
 
 
+class VersionTests(unittest.TestCase):
+    def test_patch_order_is_numeric(self):
+        self.assertLess(rp.version_tuple("0.1.9"), rp.version_tuple("0.1.10"))
+
+    def test_a_prerelease_sorts_below_its_release(self):
+        self.assertLess(rp.version_tuple("1.0.0-rc.1"), rp.version_tuple("1.0.0"))
+
+    def test_a_two_component_version_compares(self):
+        self.assertEqual(rp.version_tuple("1.2"), rp.version_tuple("1.2.0"))
+
+    def test_the_same_version_is_not_a_bump(self):
+        self.assertFalse(rp.version_tuple("0.1.3") > rp.version_tuple("0.1.3"))
+
+
+class ChangelogTests(unittest.TestCase):
+    TEXT = """\
+# Changelog
+
+## [Unreleased]
+
+## [0.1.3] - 2026-08-14
+
+Three soundness fixes.
+
+### Changed
+- Swapped the WASM test toolchain
+- Debug no longer asks for `R: Debug`
+
+## [0.1.2] - 2026-07-01
+- Something older
+"""
+
+    def test_entries_are_found_under_a_bracketed_heading(self):
+        self.assertEqual(len(rp.changelog_entries(self.TEXT, "0.1.3")), 2)
+
+    def test_a_subsection_does_not_end_the_version(self):
+        # `### Changed` sits under `## [0.1.3]`, so its bullets belong to it.
+        self.assertIn("- Swapped the WASM test toolchain", rp.changelog_entries(self.TEXT, "0.1.3"))
+
+    def test_the_next_version_ends_the_section(self):
+        self.assertNotIn("- Something older", rp.changelog_entries(self.TEXT, "0.1.3"))
+
+    def test_a_version_with_no_heading_is_distinct_from_an_empty_one(self):
+        self.assertIsNone(rp.changelog_entries(self.TEXT, "0.2.0"))
+        self.assertEqual(rp.changelog_entries(self.TEXT, "Unreleased"), [])
+
+    def test_a_bare_heading_is_matched(self):
+        self.assertEqual(rp.changelog_entries("## 1.0.0\n- did a thing\n", "1.0.0"), ["- did a thing"])
+
+    def test_a_longer_version_is_not_matched_by_a_prefix(self):
+        self.assertIsNone(rp.changelog_entries("## [0.1.30]\n- x\n", "0.1.3"))
+
+
 if __name__ == "__main__":
     unittest.main()
