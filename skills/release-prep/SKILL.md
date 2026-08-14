@@ -76,7 +76,7 @@ something:
 |---|---|
 | `scripts/line_count` | report oversized source files |
 | `scripts/spdx` | check, or with `--apply` insert, SPDX headers |
-| `scripts/check_docs` | rustdoc with `-D missing_docs` |
+| `scripts/check_docs` | rustdoc with `-D missing_docs` and the doc-correctness lints denied |
 | `scripts/compare_api.sh` | public API at a baseline vs the working tree |
 | `scripts/compare_docs.sh` | documented items at a baseline vs the working tree |
 | `scripts/11_ensure_agents_symlink` | ensure `CLAUDE.md` points at `AGENTS.md` |

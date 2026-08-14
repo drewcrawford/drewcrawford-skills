@@ -6,7 +6,14 @@ usage() {
     cat <<'EOF'
 Usage: check_docs [--root PATH]
 
-Build Rust documentation with missing_docs denied.
+Build Rust documentation with the lints that decide a doc is wrong denied.
+
+Beyond missing_docs, rustdoc already knows when a doc link points at nothing,
+when a code fence is annotated with a word it does not recognise, and when a
+fence claims to be Rust and will not parse. All of those are warnings by
+default, so a doc that says `[`Widget::new`]` about a method deleted two
+releases ago builds clean and reads as authoritative. Denying them turns a
+question for a reader into a file and a line number.
 
 Options:
   --root PATH  Crate or workspace directory (default: cwd)
@@ -29,6 +36,11 @@ done
 
 [ -d "$root" ] || { echo "Error: root is not a directory: $root" >&2; exit 2; }
 cd "$root"
-echo "Checking for missing documentation..." >&2
-RUSTDOCFLAGS="-D missing_docs" cargo doc --no-deps --all-features
-echo "All public items are documented."
+echo "Checking documentation..." >&2
+RUSTDOCFLAGS="-D missing_docs \
+-D rustdoc::broken_intra_doc_links \
+-D rustdoc::private_intra_doc_links \
+-D rustdoc::invalid_codeblock_attributes \
+-D rustdoc::invalid_rust_codeblocks \
+-D rustdoc::invalid_html_tags" cargo doc --no-deps --all-features
+echo "All public items are documented, and every doc link resolves."

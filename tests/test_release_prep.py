@@ -223,5 +223,28 @@ class CiTemplateTests(unittest.TestCase):
         self.assertNotIn("clippy", self.shape(text).steps)
 
 
+class RustdocErrorTests(unittest.TestCase):
+    OUTPUT = """\
+error: unresolved link to `Gone::method`
+ --> src/lib.rs:3:11
+  |
+3 | //! See [`Gone::method`] for details.
+  |           ^^^^^^^^^^^^ no item named `Gone` in scope
+  |
+  = note: requested on the command line with `-D rustdoc::broken-intra-doc-links`
+
+error: could not document `msrvtest`
+"""
+
+    def test_each_error_carries_its_location(self):
+        self.assertEqual(
+            rp.rustdoc_errors(self.OUTPUT),
+            ["error: unresolved link to `Gone::method` --> src/lib.rs:3:11", "error: could not document `msrvtest`"],
+        )
+
+    def test_a_clean_build_yields_nothing(self):
+        self.assertEqual(rp.rustdoc_errors("Documenting c v0.1.0\n    Finished\n"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

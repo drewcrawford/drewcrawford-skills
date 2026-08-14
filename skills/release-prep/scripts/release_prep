@@ -575,7 +575,14 @@ def crate_doc(path):
 
 
 def check_docs_presence(ctx):
-    """Missing module headers, plus whatever rustdoc's own lint catches."""
+    """Missing module headers, plus whatever rustdoc's own lints catch.
+
+    The two halves are different kinds of verdict and are reported as such.
+    Rustdoc rejecting the build is decided — an undocumented public item, a
+    link resolving to nothing, a fence annotated `ignroe` — and reads as a
+    defect with a line number. A module with no `//!` header needs somebody to
+    read the module and write one, which no exit code can do.
+    """
     bare = []
     for path in ctx.workspace_rust_files():
         # Scan a generous window rather than the first few lines: inner
@@ -585,16 +592,26 @@ def check_docs_presence(ctx):
         if not any(l.startswith("//!") or l.lstrip().startswith("/*!") for l in head):
             bare.append(str(path.relative_to(ctx.root)))
     out = run([str(BUNDLED / "check_docs")], ctx.root, timeout=1800) if ctx.args.slow else None
-    detail = [f"no //! header: {b}" for b in bare]
     if out is not None and out.returncode != 0:
-        detail += ["rustdoc reported undocumented public items"] + out.stderr.strip().splitlines()[-10:]
-    if not detail:
+        errors = rustdoc_errors(out.stdout + out.stderr)
+        return Finding(
+            "docs-presence",
+            FAIL,
+            f"rustdoc rejected the documentation ({len(errors) or 'see below'} error(s))",
+            errors or (out.stdout + out.stderr).strip().splitlines()[-10:],
+            prompt=(
+                "Fix each of these where rustdoc points. A link that resolves to nothing "
+                "is a doc describing an API that moved; correct the prose to match what "
+                "the item is called now rather than deleting the link."
+            ),
+        )
+    if not bare:
         return Finding("docs-presence", PASS, "every module carries a header")
     return Finding(
         "docs-presence",
         JUDGMENT,
         f"{len(bare)} module(s) without a //! header",
-        detail,
+        [f"no //! header: {b}" for b in bare],
         prompt=(
             "Write a `//!` header for each of these describing what the module actually "
             "does — read the implementation first; a header that restates the filename "
@@ -602,6 +619,18 @@ def check_docs_presence(ctx):
             "which is why these were invisible."
         ),
     )
+
+
+def rustdoc_errors(text):
+    """Each `error:` with the `-->` location under it, which is the actionable pair."""
+    lines = text.splitlines()
+    out = []
+    for i, line in enumerate(lines):
+        if not line.startswith("error"):
+            continue
+        where = next((l.strip() for l in lines[i + 1 : i + 4] if l.strip().startswith("-->")), None)
+        out.append(f"{line.strip()} {where}" if where else line.strip())
+    return out[:20]
 
 
 def check_docs_assets(ctx):
