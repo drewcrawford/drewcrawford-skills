@@ -1075,16 +1075,26 @@ def check_traits(ctx):
 
 def audit_api(crate, lines):
     """Split `cargo public-api` output into decided defects and open questions."""
-    decls, impls, referenced = {}, {}, set()
+    decls, impls, referenced, exported = {}, {}, set(), set()
     for line in lines:
-        m = re.match(r"^(?:(#\[[^\]]+\]) )?pub (struct|enum|union|trait) ([\w:]+)", line)
+        # The name must end on a word character: a supertrait bound puts a colon
+        # straight after the path, and `[\w:]+` would swallow it, leaving a leaf
+        # of `SomeExecutor:` that matches nothing and reads as unexported.
+        m = re.match(r"^(?:(#\[[^\]]+\]) )?pub (struct|enum|union|trait) ([\w:]*\w)", line)
         if m:
             decls[m.group(3)] = {"attrs": m.group(1) or "", "kind": m.group(2)}
+            exported.add(leaf(m.group(3)))
             continue
         m = re.match(r"^impl(?:<[^>]*>)? ([\w:]+)(?:<[^>]*>)? for ([\w:]+)", line)
         if m:
             impls.setdefault(m.group(2), set()).add(m.group(1).split("::")[-1])
             continue
+        # Exported, but not a type declaration: a `pub type` alias is a perfectly
+        # good export and carries none of the obligations below, so it belongs in
+        # `exported` without entering `decls` and being asked for a Debug impl.
+        m = re.match(r"^(?:#\[[^\]]+\] )?pub (?:type|fn|const|static|mod|use|macro) ([\w:]*\w)", line)
+        if m:
+            exported.add(leaf(m.group(1)))
         if line.startswith("pub "):
             for groups in re.findall(r"\(([^)]*)\)|-> ([\w:]+)|: ([\w:]+)", line):
                 for tok in re.findall(rf"{crate}::[\w:]+", " ".join(g for g in groups if g)):
@@ -1102,10 +1112,9 @@ def audit_api(crate, lines):
             soft.append(f"{name}: public enum is not #[non_exhaustive] — deliberate?")
         if "Eq" in traits and "Hash" not in traits:
             soft.append(f"{name}: Eq without Hash, so it cannot key a map — deliberate?")
-    declared_names = {leaf(d) for d in decls}
     for ref in sorted(referenced):
         # `Foo::Bar` is a variant of a declared type, not a type of its own.
-        if leaf(ref) in declared_names or leaf(ref.rsplit("::", 1)[0]) in declared_names:
+        if leaf(ref) in exported or leaf(ref.rsplit("::", 1)[0]) in exported:
             continue
         hard.append(f"{ref}: reachable through the public API but never exported")
     return hard, soft

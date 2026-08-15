@@ -66,6 +66,33 @@ class AuditApiTests(unittest.TestCase):
         )
         self.assertEqual(hard, [])
 
+    def test_a_supertrait_bound_does_not_hide_the_trait(self):
+        # `[\w:]+` used to swallow the colon that starts the bound list, so the
+        # trait's leaf became "Executor:" and every signature mentioning it was
+        # reported as reaching an unexported type.
+        hard, _ = rp.audit_api(
+            "c",
+            [
+                "pub trait c::Executor: core::marker::Send + core::fmt::Debug",
+                "pub fn c::spawn(e: c::Executor)",
+            ],
+        )
+        self.assertEqual(hard, [])
+
+    def test_a_type_alias_counts_as_exported(self):
+        # A `pub type` is an export, but it is not a struct/enum/union/trait, so
+        # it never entered the declaration table and everything reached through
+        # one looked unexported.
+        hard, _ = rp.audit_api(
+            "c",
+            ["pub type c::BoxedObserver = alloc::boxed::Box<c::Observer>", "pub fn c::observe() -> c::BoxedObserver"],
+        )
+        self.assertEqual(hard, [])
+
+    def test_a_type_alias_is_not_asked_for_a_debug_impl(self):
+        hard, _ = rp.audit_api("c", ["pub type c::Alias = core::primitive::u8"])
+        self.assertEqual(hard, [])
+
     def test_a_missing_debug_is_reported(self):
         hard, _ = rp.audit_api("c", ["pub struct c::Thing"])
         self.assertEqual(hard, ["c::Thing: no Debug impl"])
