@@ -203,14 +203,18 @@ class CiTemplateTests(unittest.TestCase):
         self.assertEqual(self.shape(text).steps, ["one"])
 
     def test_a_project_step_is_reported_not_penalised(self):
+        # The step named here must be one the template does not itself carry --
+        # it stands for "a sibling tool the template never heard of". Installing
+        # the wasm_lite runner used to play that role and no longer can: the
+        # template owns that step now.
         text = self.TEMPLATE.read_text().replace(
             "      - name: rustfmt",
-            "      - name: Install wasm_lite runner\n        run: cargo build\n\n      - name: rustfmt",
+            "      - name: Upload coverage\n        run: cargo build\n\n      - name: rustfmt",
         )
         shape = self.shape(text)
         template = self.shape(self.TEMPLATE.read_text())
         self.assertEqual([s for s in template.steps if s not in shape.steps], [])
-        self.assertEqual([s for s in shape.steps if s not in template.steps], ["Install wasm_lite runner"])
+        self.assertEqual([s for s in shape.steps if s not in template.steps], ["Upload coverage"])
 
     def test_a_raised_timeout_is_following_instructions(self):
         # The template tells the project needing it to raise this, so the key
