@@ -1,4 +1,4 @@
 interface:
   display_name: "Quiet Machine"
-  short_description: "Run isolated tasks on ephemeral Hetzner VMs"
-  default_prompt: "Use $quiet-machine to run this task on an isolated Hetzner VM."
+  short_description: "Benchmark on an exclusive, quiet Hetzner VM"
+  default_prompt: "Use $quiet-machine to run this benchmark on an exclusive Hetzner VM with no other task workloads."

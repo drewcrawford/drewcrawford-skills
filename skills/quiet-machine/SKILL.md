@@ -1,13 +1,15 @@
 ---
 name: quiet-machine
-description: Use this skill when a task needs an isolated, quiet Hetzner Cloud VM; when local code, dirty worktrees, or artifacts must be shipped to a dedicated machine; or when creating, repairing, reusing, snapshotting, and safely reaping short-lived test environments with custom Rust or other toolchains. Do not use it for untrusted workloads or permanent production infrastructure.
+description: Use this skill when benchmarking or performance testing needs a quiet, exclusive Hetzner Cloud VM with no other task workloads running; when local code, dirty worktrees, or artifacts must be shipped to a dedicated machine; or when creating, repairing, reusing, snapshotting, and safely reaping short-lived test environments with custom Rust or other toolchains. Do not use it for untrusted workloads or permanent production infrastructure.
 compatibility: Requires Linux, Python 3.11+, hcloud, ssh, rsync, systemd/cloud-init images, a sandbox Hetzner project token in ~/.hetzner, and network access.
 ---
 
 # Quiet Machine
 
-Run trusted work on exclusive Hetzner VMs. A VM may serve sequential tasks, but
-the remote lock must never be shared by concurrent tasks.
+Run benchmarks, performance tests, and other trusted work on exclusive Hetzner
+VMs. A claimed VM runs no other task workload; only required operating-system
+services remain. A VM may serve sequential tasks, but the remote lock must never
+be shared by concurrent tasks.
 
 Resolve all bundled paths relative to this skill directory. Use
 `python3 scripts/quiet_machine.py` for lifecycle operations.
