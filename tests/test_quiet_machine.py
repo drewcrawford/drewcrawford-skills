@@ -103,6 +103,27 @@ class PoolTests(unittest.TestCase):
             self.assertIsNone(qm.candidate("token", {}, Path("."), "fp"))
 
 
+class HostKeyTests(unittest.TestCase):
+    def test_new_managed_server_forgets_only_its_reused_address(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(qm.Path, "home", return_value=Path(td)), \
+             mock.patch.object(qm, "command") as command:
+            known = qm.known_hosts_path()
+            known.parent.mkdir(parents=True)
+            known.write_text("old key\n")
+            qm.forget_managed_host("192.0.2.7")
+        command.assert_called_once_with(
+            ["ssh-keygen", "-f", str(known), "-R", "192.0.2.7"],
+            capture=True, check=False)
+
+    def test_missing_known_hosts_needs_no_eviction(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(qm.Path, "home", return_value=Path(td)), \
+             mock.patch.object(qm, "command") as command:
+            qm.forget_managed_host("192.0.2.7")
+        command.assert_not_called()
+
+
 class CreationCleanupTests(unittest.TestCase):
     def profile(self):
         return {"name": "browser", "ssh_public_key": "key.pub",
@@ -148,6 +169,39 @@ class CreationCleanupTests(unittest.TestCase):
             qm.create_server("token", self.profile(), Path("."), {"id": 1},
                              "fp", 9999)
         self.assertIn((("firewall", "delete", 9), False), calls)
+
+    def test_interrupt_during_creation_deletes_created_firewall(self):
+        calls = []
+
+        def cloud(_token, *args, capture=True):
+            calls.append((args, capture))
+            if args[:2] == ("firewall", "create"):
+                return {"id": 9}
+            if args[:2] == ("firewall", "add-rule"):
+                raise KeyboardInterrupt
+            return None
+
+        with mock.patch.object(qm, "ensure_ssh_key", return_value="key"), \
+             mock.patch.object(qm, "hcloud", side_effect=cloud), \
+             self.assertRaises(KeyboardInterrupt):
+            qm.create_server("token", self.profile(), Path("."), {"id": 1},
+                             "fp", 9999)
+        self.assertIn((("firewall", "delete", 9), False), calls)
+
+    def test_interrupt_before_remote_reaper_deletes_new_server(self):
+        args = mock.Mock(apply=True, time=60, command=["true"])
+        profile = {"name": "browser"}
+        server = {"id": 42, "public_net": {"ipv4": {"ip": "192.0.2.7"}}}
+        with mock.patch.object(qm, "plan_for",
+                               return_value=({"id": 1}, "fp", None, 9999)), \
+             mock.patch.object(qm, "create_server", return_value=server), \
+             mock.patch.object(qm, "forget_managed_host") as forget, \
+             mock.patch.object(qm, "wait_ssh", side_effect=KeyboardInterrupt), \
+             mock.patch.object(qm, "delete_server") as delete, \
+             self.assertRaises(KeyboardInterrupt):
+            qm.do_run(args, profile, Path("."), "token")
+        forget.assert_called_once_with("192.0.2.7")
+        delete.assert_called_once_with("token", 42, True)
 
 
 class DestructionCleanupTests(unittest.TestCase):

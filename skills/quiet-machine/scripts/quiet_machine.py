@@ -146,9 +146,27 @@ def managed_firewalls(token: str):
     return hcloud(token, "firewall", "list", "--selector", f"{MANAGED}=true", "-o", "json") or []
 
 
+def known_hosts_path() -> Path:
+    return Path.home() / ".cache/quiet-machine/known_hosts"
+
+
+def forget_managed_host(ip: str):
+    """Forget an address before first contact with a newly created VM.
+
+    Cloud addresses are routinely reused.  The previous key remains valuable
+    while reusing an existing managed server, but it cannot authenticate a new
+    server which Hetzner happened to assign the same address.
+    """
+    known = known_hosts_path()
+    if not known.exists():
+        return
+    command(["ssh-keygen", "-f", str(known), "-R", ip], capture=True,
+            check=False)
+
+
 def ssh_base(profile: dict, ip: str, base: Path):
     key = expand(profile["ssh_private_key"], base)
-    known = Path.home() / ".cache/quiet-machine/known_hosts"
+    known = known_hosts_path()
     known.parent.mkdir(parents=True, exist_ok=True)
     return ["ssh", "-i", str(key), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
             "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", f"root@{ip}"]
@@ -228,7 +246,7 @@ def create_server(token, profile, base, image, fingerprint, retain_until):
         hcloud(token, "firewall", "add-label", "--overwrite", firewall["id"],
                f"quiet-machine-server={server['id']}", capture=False)
         return server
-    except Exception:
+    except BaseException:
         if server is not None:
             hcloud(token, "server", "delete", server["id"], capture=False)
         if firewall is not None:
@@ -251,7 +269,7 @@ def candidate(token, profile, base, fingerprint):
 def rsync(profile, base, source: Path, destination: str, excludes=(), pull=False):
     # rsync supplies the host; use the same SSH policy without its destination.
     key = expand(profile["ssh_private_key"], base)
-    known = Path.home() / ".cache/quiet-machine/known_hosts"
+    known = known_hosts_path()
     transport = f"ssh -i {shlex.quote(str(key))} -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={shlex.quote(str(known))}"
     args = ["rsync", "-a", "--delete", "-e", transport]
     for item in excludes:
@@ -305,9 +323,10 @@ def do_run(args, profile, base, token):
     if new:
         server = create_server(token, profile, base, image, fingerprint, retain_until)
         try:
+            forget_managed_host(server_ip(server))
             wait_ssh(profile, base, server_ip(server))
             install_remote(profile, base, server_ip(server), token)
-        except Exception:
+        except BaseException:
             try:
                 delete_server(token, server["id"], True)
             finally:
