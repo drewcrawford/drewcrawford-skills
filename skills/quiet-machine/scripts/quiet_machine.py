@@ -523,6 +523,10 @@ def main(argv=None):
                                retention(created, int(time.time()), args.time,
                                          duration(profile.get("billing_quantum", "60m")),
                                          duration(profile.get("billing_guard", "60s"))))
+            # `setup` is also the in-place control-plane upgrade path.  The
+            # agent and reaper participate in the profile fingerprint, so the
+            # relabel below is valid only after their current bytes are armed.
+            install_remote(profile, base, ip, token)
             run_setup(token, profile, base, server, fp, retain_until); return 0
         if args.action == "snapshot":
             probe = remote(profile, base, ip, ["/usr/local/sbin/quiet-machine-agent", "probe"], check=False)

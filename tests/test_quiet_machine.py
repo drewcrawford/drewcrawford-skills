@@ -100,6 +100,14 @@ class ParserTests(unittest.TestCase):
     def test_interactive_shell_explicitly_requests_interactive_bash(self):
         self.assertIn('"--", "bash", "-il"', SCRIPT.read_text())
 
+    def test_setup_reinstalls_fingerprinted_control_agent(self):
+        source = SCRIPT.read_text()
+        start = source.index('if args.action == "setup":')
+        setup_branch = source[start:source.index('if args.action == "snapshot":',
+                                                 start)]
+        self.assertLess(setup_branch.index("install_remote("),
+                        setup_branch.index("run_setup("))
+
 
 class PoolTests(unittest.TestCase):
     def test_busy_candidate_is_skipped_for_next_idle_server(self):
