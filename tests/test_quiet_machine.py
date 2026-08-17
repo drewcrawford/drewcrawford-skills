@@ -82,6 +82,9 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(args.command, ["--", "cargo", "test"])
         self.assertFalse(args.apply)
 
+    def test_interactive_shell_explicitly_requests_interactive_bash(self):
+        self.assertIn('"--", "bash", "-il"', SCRIPT.read_text())
+
 
 class PoolTests(unittest.TestCase):
     def test_busy_candidate_is_skipped_for_next_idle_server(self):
@@ -100,15 +103,86 @@ class PoolTests(unittest.TestCase):
             self.assertIsNone(qm.candidate("token", {}, Path("."), "fp"))
 
 
+class CreationCleanupTests(unittest.TestCase):
+    def profile(self):
+        return {"name": "browser", "ssh_public_key": "key.pub",
+                "ssh_source_cidr": "127.0.0.1/32", "server_type": "ccx23",
+                "location": "ash"}
+
+    def test_human_output_mutations_are_not_json_parsed(self):
+        calls = []
+
+        def cloud(_token, *args, capture=True):
+            calls.append((args, capture))
+            if args[:2] == ("firewall", "create"):
+                return {"id": 9}
+            if args[:2] == ("server", "create"):
+                return {"id": 42}
+            return None
+
+        with mock.patch.object(qm, "ensure_ssh_key", return_value="key"), \
+             mock.patch.object(qm, "hcloud", side_effect=cloud):
+            server = qm.create_server("token", self.profile(), Path("."),
+                                      {"id": 1}, "fp", 9999)
+        self.assertEqual(server["id"], 42)
+        self.assertIn((("firewall", "add-rule", "--direction", "in", "--protocol",
+                        "tcp", "--port", "22", "--source-ips", "127.0.0.1/32", 9),
+                       False), calls)
+        self.assertIn((("firewall", "add-label", "--overwrite", 9,
+                        "quiet-machine-server=42"), False), calls)
+
+    def test_rule_failure_deletes_created_firewall(self):
+        calls = []
+
+        def cloud(_token, *args, capture=True):
+            calls.append((args, capture))
+            if args[:2] == ("firewall", "create"):
+                return {"id": 9}
+            if args[:2] == ("firewall", "add-rule"):
+                raise qm.Failure("rule failed")
+            return None
+
+        with mock.patch.object(qm, "ensure_ssh_key", return_value="key"), \
+             mock.patch.object(qm, "hcloud", side_effect=cloud), \
+             self.assertRaises(qm.Failure):
+            qm.create_server("token", self.profile(), Path("."), {"id": 1},
+                             "fp", 9999)
+        self.assertIn((("firewall", "delete", 9), False), calls)
+
+
+class DestructionCleanupTests(unittest.TestCase):
+    def test_server_is_deleted_before_attached_managed_firewall(self):
+        calls = []
+
+        def cloud(_token, *args, capture=True):
+            calls.append((args, capture))
+            if args[:2] == ("server", "describe"):
+                return {"id": 42, "labels": {qm.MANAGED: "true"}}
+            if args[:2] == ("firewall", "list"):
+                return [{"id": 9, "labels": {qm.MANAGED: "true"}}]
+            return None
+
+        with mock.patch.object(qm, "hcloud", side_effect=cloud):
+            qm.delete_server("token", "42", True)
+        server_delete = calls.index((("server", "delete", 42), False))
+        firewall_delete = calls.index((("firewall", "delete", 9), False))
+        self.assertLess(server_delete, firewall_delete)
+
+
 class SecretTests(unittest.TestCase):
     def test_bootstrap_assets_do_not_contain_local_token(self):
         token = "test-token-that-must-not-leak"
         for path in (qm.REMOTE_AGENT, qm.SERVICE):
             self.assertNotIn(token, path.read_text())
 
+    def test_workload_directory_is_outside_root_only_token_state(self):
+        source = SCRIPT.read_text()
+        self.assertIn('/home/quiet/.quiet-machine/runs/', source)
+        self.assertNotIn('remote_dir = f"/var/lib/quiet-machine/runs/', source)
+
 
 class ReaperTests(unittest.TestCase):
-    def test_idle_expired_machine_deletes_firewall_then_itself(self):
+    def test_idle_expired_machine_deletes_server_before_firewall(self):
         handle = mock.Mock()
         calls = []
 
@@ -126,6 +200,8 @@ class ReaperTests(unittest.TestCase):
             self.assertTrue(remote_agent.reap_once())
         self.assertIn(("DELETE", "/firewalls/9"), calls)
         self.assertIn(("DELETE", "/servers/42"), calls)
+        self.assertLess(calls.index(("DELETE", "/servers/42")),
+                        calls.index(("DELETE", "/firewalls/9")))
 
     def test_busy_machine_waits_until_hard_deadline(self):
         with mock.patch.object(remote_agent, "labels", return_value={"quiet-machine-retain-until": "10", "quiet-machine-hard-expiry": "20"}), \
@@ -139,6 +215,37 @@ class ReaperTests(unittest.TestCase):
              mock.patch.object(remote_agent, "set_labels") as labels:
             self.assertEqual(remote_agent.setup(args), 7)
         labels.assert_called_with(**{"quiet-machine-state": "needs-repair"})
+
+
+class LocalReapTests(unittest.TestCase):
+    def test_managed_unattached_orphan_firewall_is_selected(self):
+        parser = qm.build_parser()
+        args = parser.parse_args(["reap", "--apply"])
+        config = {"credential_file": "token"}
+        profile = {"credential_file": "token"}
+        firewall = {"id": 9, "labels": {qm.MANAGED: "true",
+                    "quiet-machine-server": "42"}, "applied_to": []}
+        calls = []
+
+        def cloud(_token, *parts, capture=True):
+            calls.append((parts, capture))
+            if parts[:2] == ("server", "list"):
+                return []
+            if parts[:2] == ("firewall", "list"):
+                return [firewall]
+            return None
+
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(qm, "load_config", return_value=(config, profile)), \
+             mock.patch.object(qm, "read_token", return_value="token"), \
+             mock.patch.object(qm, "hcloud", side_effect=cloud), \
+             mock.patch.object(qm.time, "time", return_value=100):
+            args.config = Path(td) / ".quiet-machine.toml"
+            # Exercise the reap body through main so parser/action wiring is
+            # covered as well as the selection predicate.
+            self.assertEqual(qm.main(["--config", str(args.config),
+                                      "reap", "--apply"]), 0)
+        self.assertIn((("firewall", "delete", 9), False), calls)
 
 
 if __name__ == "__main__":

@@ -142,6 +142,10 @@ def servers(token: str):
     return hcloud(token, "server", "list", "--selector", f"{MANAGED}=true", "-o", "json") or []
 
 
+def managed_firewalls(token: str):
+    return hcloud(token, "firewall", "list", "--selector", f"{MANAGED}=true", "-o", "json") or []
+
+
 def ssh_base(profile: dict, ip: str, base: Path):
     key = expand(profile["ssh_private_key"], base)
     known = Path.home() / ".cache/quiet-machine/known_hosts"
@@ -197,11 +201,6 @@ def create_server(token, profile, base, image, fingerprint, retain_until):
     ssh_key = ensure_ssh_key(token, profile, base)
     suffix = hashlib.sha256(os.urandom(16)).hexdigest()[:10]
     firewall_name = "quiet-machine-" + suffix
-    fw = hcloud(token, "firewall", "create", "--name", firewall_name,
-                "--label", f"{MANAGED}=true", "-o", "json")
-    firewall = fw.get("firewall", fw)
-    hcloud(token, "firewall", "add-rule", "--direction", "in", "--protocol", "tcp", "--port", "22",
-           "--source-ips", profile["ssh_source_cidr"], firewall["id"])
     created = int(time.time())
     labels = {
         MANAGED: "true", "quiet-machine-profile": fingerprint,
@@ -209,18 +208,31 @@ def create_server(token, profile, base, image, fingerprint, retain_until):
         "quiet-machine-state": "bootstrapping", "quiet-machine-created": str(created),
         "quiet-machine-retain-until": str(retain_until), "quiet-machine-hard-expiry": str(retain_until + 120),
     }
-    args = ["server", "create", "--name", "quiet-machine-" + suffix, "--type", profile.get("server_type", "ccx13"),
-            "--image", image["id"], "--location", profile["location"], "--ssh-key", ssh_key,
-            "--firewall", firewall["id"], "--without-ipv6", "-o", "json"]
-    for key, value in labels.items():
-        args += ["--label", f"{key}={value}"]
+    firewall = None
+    server = None
     try:
+        fw = hcloud(token, "firewall", "create", "--name", firewall_name,
+                    "--label", f"{MANAGED}=true", "-o", "json")
+        firewall = fw.get("firewall", fw)
+        # These mutation-only hcloud commands print human success text rather
+        # than JSON.  Do not send that text through the JSON-return helper.
+        hcloud(token, "firewall", "add-rule", "--direction", "in", "--protocol", "tcp", "--port", "22",
+               "--source-ips", profile["ssh_source_cidr"], firewall["id"], capture=False)
+        args = ["server", "create", "--name", "quiet-machine-" + suffix, "--type", profile.get("server_type", "ccx13"),
+                "--image", image["id"], "--location", profile["location"], "--ssh-key", ssh_key,
+                "--firewall", firewall["id"], "--without-ipv6", "-o", "json"]
+        for key, value in labels.items():
+            args += ["--label", f"{key}={value}"]
         made = hcloud(token, *args)
         server = made.get("server", made)
-        hcloud(token, "firewall", "add-label", "--overwrite", firewall["id"], f"quiet-machine-server={server['id']}")
+        hcloud(token, "firewall", "add-label", "--overwrite", firewall["id"],
+               f"quiet-machine-server={server['id']}", capture=False)
         return server
     except Exception:
-        hcloud(token, "firewall", "delete", firewall["id"], capture=False)
+        if server is not None:
+            hcloud(token, "server", "delete", server["id"], capture=False)
+        if firewall is not None:
+            hcloud(token, "firewall", "delete", firewall["id"], capture=False)
         raise
 
 
@@ -297,13 +309,19 @@ def do_run(args, profile, base, token):
             install_remote(profile, base, server_ip(server), token)
         except Exception:
             try:
-                hcloud(token, "server", "delete", server["id"], capture=False)
+                delete_server(token, server["id"], True)
             finally:
                 raise
         # A setup failure deliberately retains the armed machine for repair.
         run_setup(token, profile, base, server, fingerprint, retain_until)
     ip = server_ip(server)
-    remote_dir = f"/var/lib/quiet-machine/runs/{int(time.time())}-{os.getpid()}"
+    # The workload runs as `quiet`.  `/var/lib/quiet-machine` is deliberately
+    # 0700 root because it contains the sandbox API token; placing work below
+    # it lets a relative shell entrypoint start from an already-open cwd but
+    # breaks tools (Node module resolution among them) which canonicalize that
+    # cwd and traverse the absolute parent path.  Keep code under the task
+    # user's home and credentials under the root-only state directory.
+    remote_dir = f"/home/quiet/.quiet-machine/runs/{int(time.time())}-{os.getpid()}"
     remote(profile, base, ip, ["mkdir", "-p", remote_dir])
     caches = profile.get("cache_paths", [])
     if caches:
@@ -365,10 +383,24 @@ def delete_server(token, sid, apply):
     print(json.dumps({"action": "delete", "server_id": item["id"], "apply": apply}))
     if apply:
         firewalls = hcloud(token, "firewall", "list", "--selector", f"quiet-machine-server={item['id']}", "-o", "json") or []
+        # Hetzner refuses deletion of an attached firewall. Delete the server
+        # first so it never spends a failure window publicly reachable without
+        # its ingress policy, then retry the now-orphaned managed firewall while
+        # the asynchronous detach settles.
+        hcloud(token, "server", "delete", item["id"], capture=False)
         for firewall in firewalls:
             if firewall.get("labels", {}).get(MANAGED) == "true":
-                hcloud(token, "firewall", "delete", firewall["id"], capture=False)
-        hcloud(token, "server", "delete", item["id"], capture=False)
+                failure = None
+                for _ in range(20):
+                    try:
+                        hcloud(token, "firewall", "delete", firewall["id"], capture=False)
+                        failure = None
+                        break
+                    except Failure as exc:
+                        failure = exc
+                        time.sleep(0.5)
+                if failure is not None:
+                    raise failure
 
 
 def build_parser():
@@ -411,12 +443,26 @@ def main(argv=None):
         if args.action == "destroy": delete_server(token, args.server, args.apply); return 0
         if args.action == "reap":
             now = int(time.time())
-            for s in servers(token):
+            live_servers = servers(token)
+            for s in live_servers:
                 labels = s["labels"]
                 state = labels.get("quiet-machine-state")
                 deadline = labels.get("quiet-machine-hard-expiry") if state in {"busy", "bootstrapping"} else labels.get("quiet-machine-retain-until")
                 if int(deadline or "0") <= now:
                     delete_server(token, s["id"], args.apply)
+            # A VM can disappear after asking the API to delete itself but
+            # before its process removes the now-detached firewall. Reap only
+            # managed, unattached firewalls whose labelled server is absent.
+            live_ids = {str(s["id"]) for s in live_servers}
+            for firewall in managed_firewalls(token):
+                owner = firewall.get("labels", {}).get("quiet-machine-server")
+                if owner in live_ids or firewall.get("applied_to"):
+                    continue
+                print(json.dumps({"action": "delete-orphan-firewall",
+                                  "firewall_id": firewall["id"],
+                                  "apply": args.apply}))
+                if args.apply:
+                    hcloud(token, "firewall", "delete", firewall["id"], capture=False)
             return 0
         if not args.apply:
             plan = {"action": args.action, "server_id": args.server, "apply": False}
@@ -434,7 +480,7 @@ def main(argv=None):
                                       duration(profile.get("billing_guard", "60s")))
             return remote(profile, base, ip, ["/usr/local/sbin/quiet-machine-agent", "run",
                           "--timeout", args.time, "--retain-until", retain_until, "--cwd", "/home/quiet",
-                          "--", "bash", "-l"], check=False, tty=True).returncode
+                          "--", "bash", "-il"], check=False, tty=True).returncode
         if args.action == "setup":
             image = {"id": server["image"]["id"]}; fp = profile_hash(profile, base, str(image["id"]))
             created = int(server["labels"]["quiet-machine-created"])

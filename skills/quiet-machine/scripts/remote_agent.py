@@ -147,11 +147,21 @@ def reap_once():
     handle = lock()
     if now >= hard > 0 or (handle is not None and now >= retain > 0):
         sid = server_id()
-        # Firewalls are free but clean up the per-server object before deleting.
+        # An attached firewall cannot be deleted. Ask for self-deletion first,
+        # then use the short interval before shutdown to remove the detached
+        # managed object. The orphan-aware local reap collects it if the VM
+        # disappears before this process reaches the second request.
         page = request("GET", "/firewalls?label_selector=quiet-machine-server%3D" + sid)
-        for firewall in page.get("firewalls", []):
-            request("DELETE", "/firewalls/" + str(firewall["id"]))
         request("DELETE", "/servers/" + sid)
+        for firewall in page.get("firewalls", []):
+            for _ in range(20):
+                try:
+                    request("DELETE", "/firewalls/" + str(firewall["id"]))
+                    break
+                except urllib.error.HTTPError as exc:
+                    if exc.code != 409:
+                        raise
+                    time.sleep(0.25)
         return True
     if handle is not None:
         handle.close()
