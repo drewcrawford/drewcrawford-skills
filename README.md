@@ -71,6 +71,10 @@ after `git pull` to update.
 
 **Everything else:**
 
+* **quiet-machine** — provisions exclusive, self-reaping Hetzner Cloud VMs for
+  trusted tests, reuses idle machines through their paid billing window, ships
+  dirty local worktrees over SSH, and turns live setup fixes into reusable
+  Packer images.
 * **dev-browser** — browser automation with persistent page state: a
   Playwright/CDP server with an ARIA snapshot engine and a WebSocket relay
   into your real Chrome. (Extended from an upstream project — see its README

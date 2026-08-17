@@ -1,0 +1,17 @@
+credential_file = "~/.hetzner"
+
+[profiles.rust]
+image = "ubuntu-24.04"
+server_type = "ccx13"
+location = "ash"
+ssh_source_cidr = "203.0.113.10/32"
+ssh_private_key = "~/.ssh/id_ed25519"
+ssh_public_key = "~/.ssh/id_ed25519.pub"
+setup_script = "ops/quiet-machine-setup.sh"
+setup_files = ["ops/quiet-machine"]
+setup_timeout = "30m"
+billing_quantum = "60m"
+billing_guard = "60s"
+sync_excludes = [".git/", "target/"]
+cache_paths = ["/home/quiet/.cargo/registry", "/home/quiet/.cargo/git"]
+artifact_dir = ".quiet-machine-out"

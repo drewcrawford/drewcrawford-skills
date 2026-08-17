@@ -127,6 +127,47 @@ def run(cmd, cwd, timeout=None):
     return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
 
 
+def _load_gitea_dotfile():
+    """Load GITEA_URL/TOKEN from dotfile if env vars are not set, mirroring gitea_builds.py."""
+    if os.environ.get("GITEA_URL") and os.environ.get("GITEA_TOKEN"):
+        return os.environ.get("GITEA_URL"), os.environ.get("GITEA_TOKEN")
+    for candidate in (Path(os.environ.get("GITEA_CONFIG", "")).expanduser() if os.environ.get("GITEA_CONFIG") else None, Path.cwd() / ".gitea", Path.home() / ".gitea"):
+        if candidate is None or not candidate.is_file():
+            continue
+        try:
+            env = {}
+            for line in candidate.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[7:].lstrip()
+                if "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip()
+                if v.startswith(("'", '"')) and len(v) >= 2 and v[0] == v[-1]:
+                    v = v[1:-1]
+                elif v.startswith(("'", '"')):
+                    q = v[0]
+                    end = v.find(q, 1)
+                    if end != -1:
+                        v = v[1:end]
+                env[k] = v
+            url = env.get("GITEA_URL") or os.environ.get("GITEA_URL")
+            token = env.get("GITEA_TOKEN") or os.environ.get("GITEA_TOKEN")
+            if url or token:
+                if url:
+                    os.environ.setdefault("GITEA_URL", url)
+                if token:
+                    os.environ.setdefault("GITEA_TOKEN", token)
+                return os.environ.get("GITEA_URL"), os.environ.get("GITEA_TOKEN")
+        except OSError:
+            continue
+    return os.environ.get("GITEA_URL"), os.environ.get("GITEA_TOKEN")
+
+
 def git(args, root):
     return run(["git"] + args, root)
 
@@ -401,7 +442,7 @@ def check_package(ctx):
         err = out.stderr
         # Downstream crates cannot package until their siblings are actually on
         # the registry. That is publish order, not a defect.
-        if "no matching package named" in err and "crates.io index" in err:
+        if "crates.io index" in err and ("no matching package named" in err or "failed to select a version for the requirement" in err):
             continue
         first = next((l.strip() for l in err.splitlines() if l.strip().startswith("error")), err.strip()[:200])
         broken.append(f"{pkg['name']}: {first}")
@@ -1355,7 +1396,8 @@ def forge_run_status(ctx, remote, url, head):
     gitea = SKILL_DIR.parent / "gitea" / "scripts" / "gitea_builds.py"
     if not gitea.is_file():
         return "unknown", "the gitea skill is not installed alongside this one"
-    if not os.environ.get("GITEA_URL") or not os.environ.get("GITEA_TOKEN"):
+    gitea_url, gitea_token = _load_gitea_dotfile()
+    if not gitea_url or not gitea_token:
         return "unknown", "GITEA_URL/GITEA_TOKEN are not set"
     # The window is how many commits back it will look for runs; the default
     # of 10 is short for a release branch that has been worked on all day.

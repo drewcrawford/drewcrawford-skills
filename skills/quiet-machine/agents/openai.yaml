@@ -1,0 +1,4 @@
+interface:
+  display_name: "Quiet Machine"
+  short_description: "Run isolated tasks on ephemeral Hetzner VMs"
+  default_prompt: "Use $quiet-machine to run this task on an isolated Hetzner VM."
