@@ -1,7 +1,6 @@
 ---
 name: quiet-machine
 description: Use this skill when benchmarking or performance testing needs a quiet, exclusive Hetzner Cloud VM with no other task workloads running; when local code, dirty worktrees, or artifacts must be shipped to a dedicated machine; or when creating, repairing, reusing, snapshotting, and safely reaping short-lived test environments with custom Rust or other toolchains. Do not use it for untrusted workloads or permanent production infrastructure.
-compatibility: Requires Linux, Python 3.11+, hcloud, ssh, rsync, systemd/cloud-init images, a sandbox Hetzner project token in ~/.hetzner, and network access.
 ---
 
 # Quiet Machine
@@ -13,6 +12,9 @@ be shared by concurrent tasks.
 
 Resolve all bundled paths relative to this skill directory. Use
 `python3 scripts/quiet_machine.py` for lifecycle operations.
+
+Requires Linux, Python 3.11+, `hcloud`, `ssh`, `rsync`, systemd/cloud-init
+images, a sandbox Hetzner project token in `~/.hetzner`, and network access.
 
 ## Safety contract
 
@@ -45,6 +47,12 @@ python3 scripts/quiet_machine.py run --profile rust --time 30m --apply -- cargo 
 claims an idle matching VM with a nonblocking remote lock or creates a new one,
 runs setup when needed, syncs the source, executes the command, retrieves
 `.quiet-machine-out/`, and releases the VM for reuse.
+
+`run` is foreground-only. Ctrl-C asks the remote lifecycle agent to terminate
+the task process group, retrieves any completed artifacts, and returns `130`;
+the VM then becomes ready for reuse. There is not yet a detached job/attach or
+notification mode, so use the caller's normal process-wait facility for a long
+run.
 
 ## Repair loop
 
@@ -85,6 +93,7 @@ dry-run plan before applying it.
 
 - Task stdout and stderr stream unchanged.
 - Exit `124` means timeout, `125` means lifecycle/SSH/sync/setup failure, and
-  `2` means invalid usage. Other `0`-`123` values are the task's status.
+  `130` means the caller cancelled with Ctrl-C; `2` means invalid usage. Other
+  `0`-`123` values are the task's status.
 - Retrieve artifacts even after task failure when SSH remains available.
 - Use `--report PATH` for a machine-readable lifecycle report.

@@ -110,6 +110,10 @@ def profile_hash(profile: dict, base: Path, image_id: str) -> str:
     stable = {k: v for k, v in profile.items() if k not in {"credential_file", "ssh_private_key", "artifact_dir"}}
     digest.update(json.dumps(stable, sort_keys=True).encode())
     digest.update(str(image_id).encode())
+    # These files are installed on every managed host.  A controller update
+    # must not silently reuse a ready VM running an older lifecycle agent.
+    digest.update(REMOTE_AGENT.read_bytes())
+    digest.update(SERVICE.read_bytes())
     inputs = []
     if profile.get("setup_script"):
         inputs.append(profile["setup_script"])
@@ -352,7 +356,16 @@ def do_run(args, profile, base, token):
     remote_cmd = ["env", f"QUIET_MACHINE_ARTIFACTS={remote_dir}/.quiet-machine-out",
                   "/usr/local/sbin/quiet-machine-agent", "run", "--timeout", args.time,
                   "--retain-until", retain_until, "--cwd", remote_dir, "--", *args.command]
-    result = remote(profile, base, ip, remote_cmd, check=False)
+    interrupted = False
+    try:
+        result = remote(profile, base, ip, remote_cmd, check=False)
+    except KeyboardInterrupt:
+        interrupted = True
+        print("quiet-machine: cancelling remote workload...", file=sys.stderr)
+        remote(profile, base, ip,
+               ["/usr/local/sbin/quiet-machine-agent", "cancel"],
+               check=False)
+        result = subprocess.CompletedProcess([], 130)
     artifact = args.source / profile.get("artifact_dir", ".quiet-machine-out")
     try:
         artifact.mkdir(parents=True, exist_ok=True)
@@ -363,6 +376,9 @@ def do_run(args, profile, base, token):
     report = {**plan, "server_id": server["id"], "exit_code": result.returncode, "new_server": new}
     if args.report:
         args.report.write_text(json.dumps(report, indent=2) + "\n")
+    if interrupted:
+        print("quiet-machine: remote workload cancelled; VM is ready for reuse",
+              file=sys.stderr)
     return result.returncode
 
 

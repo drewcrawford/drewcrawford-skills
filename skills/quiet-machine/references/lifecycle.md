@@ -21,7 +21,10 @@ server. The default quantum is 60 minutes and guard is 60 seconds.
 - `busy`: informational label; the remote `flock` is authoritative.
 - `needs-repair`: setup failed; normal runs must not claim it.
 
-The remote controller holds `/run/quiet-machine/task.lock`. A second caller
+The remote controller holds `/run/quiet-machine/task.lock` and records the
+active task process group in `/run/quiet-machine/task.pid`. `cancel` signals
+only that group; the controller remains alive long enough to restore the ready
+label and lease deadline. A second caller
 must try the lock nonblockingly and create a new server on failure. The reaper
 deletes only while the lock is free, except at the hard deadline.
 

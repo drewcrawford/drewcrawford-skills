@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import pwd
+import signal
 import subprocess
 import sys
 import time
@@ -16,6 +17,7 @@ import urllib.request
 ROOT = pathlib.Path("/var/lib/quiet-machine")
 TOKEN = ROOT / "token"
 LOCK = pathlib.Path("/run/quiet-machine/task.lock")
+TASK_PID = pathlib.Path("/run/quiet-machine/task.pid")
 API = "https://api.hetzner.cloud/v1"
 META = "http://169.254.169.254/hetzner/v1/metadata/instance-id"
 
@@ -106,24 +108,61 @@ def run_locked(args, setup=False):
     try:
         command = args.command
         if setup:
-            proc = subprocess.run(["timeout", "--signal=TERM", "--kill-after=30s", str(args.timeout)] + command)
+            argv = ["timeout", "--signal=TERM", "--kill-after=30s",
+                    str(args.timeout)] + command
         else:
             ensure_user()
-            proc = subprocess.run([
+            argv = [
                 "timeout", "--signal=TERM", "--kill-after=30s", str(args.timeout),
                 "sudo", "-u", "quiet", "--preserve-env=QUIET_MACHINE_ARTIFACTS", "--",
-            ] + command, cwd=args.cwd)
-        code = proc.returncode
+            ] + command
+        # A distinct process group gives `cancel` one exact, bounded target.
+        # The agent itself stays alive to restore the ready label in `finally`.
+        proc = subprocess.Popen(argv, cwd=None if setup else args.cwd,
+                                start_new_session=True)
+        TASK_PID.write_text(str(proc.pid) + "\n")
+        code = proc.wait()
         if code in (124, 137, 143):
             return 124
         return code if 0 <= code <= 123 else 125
     finally:
+        TASK_PID.unlink(missing_ok=True)
         set_labels(**{
             "quiet-machine-state": "ready" if not setup else "ready",
             "quiet-machine-retain-until": args.retain_until,
             "quiet-machine-hard-expiry": args.retain_until + 120,
         })
         handle.close()
+
+
+def cancel(_args):
+    # If the lock is available there is no workload to cancel.  Removing a
+    # stale pid file in that case avoids ever signalling a reused process ID.
+    handle = lock()
+    if handle is not None:
+        handle.close()
+        TASK_PID.unlink(missing_ok=True)
+        return 0
+    try:
+        pid = int(TASK_PID.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return 75
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return 0
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return 0
+        time.sleep(0.1)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    return 0
 
 
 def setup(args):
@@ -183,6 +222,7 @@ def main():
     sub = parser.add_subparsers(dest="action", required=True)
     sub.add_parser("arm")
     sub.add_parser("probe")
+    sub.add_parser("cancel")
     sub.add_parser("reaper")
     for name in ("run", "setup"):
         p = sub.add_parser(name)
@@ -194,7 +234,9 @@ def main():
     args = parser.parse_args()
     if args.action in ("run", "setup") and args.command[:1] == ["--"]:
         args.command = args.command[1:]
-    funcs = {"arm": arm, "probe": probe, "run": lambda a: run_locked(a), "setup": setup, "reaper": reaper}
+    funcs = {"arm": arm, "probe": probe, "cancel": cancel,
+             "run": lambda a: run_locked(a), "setup": setup,
+             "reaper": reaper}
     return funcs[args.action](args) or 0
 
 

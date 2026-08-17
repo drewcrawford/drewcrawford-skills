@@ -62,6 +62,21 @@ class FingerprintTests(unittest.TestCase):
             profile.update(ssh_private_key="/two", credential_file="/other")
             self.assertEqual(first, qm.profile_hash(profile, root, "10"))
 
+    def test_installed_control_agent_changes_fingerprint(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            agent = root / "agent.py"
+            service = root / "agent.service"
+            agent.write_text("one\n")
+            service.write_text("service\n")
+            profile = {"name": "x"}
+            with mock.patch.object(qm, "REMOTE_AGENT", agent), \
+                 mock.patch.object(qm, "SERVICE", service):
+                first = qm.profile_hash(profile, root, "10")
+                agent.write_text("two\n")
+                second = qm.profile_hash(profile, root, "10")
+            self.assertNotEqual(first, second)
+
 
 class CredentialTests(unittest.TestCase):
     def test_rejects_world_readable_token(self):
@@ -269,6 +284,30 @@ class ReaperTests(unittest.TestCase):
              mock.patch.object(remote_agent, "set_labels") as labels:
             self.assertEqual(remote_agent.setup(args), 7)
         labels.assert_called_with(**{"quiet-machine-state": "needs-repair"})
+
+
+class CancellationTests(unittest.TestCase):
+    def test_cancel_signals_only_active_task_process_group(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(remote_agent, "TASK_PID", Path(td) / "task.pid"), \
+             mock.patch.object(remote_agent, "lock", return_value=None), \
+             mock.patch.object(remote_agent.os, "killpg") as killpg, \
+             mock.patch.object(remote_agent.os, "kill", side_effect=ProcessLookupError):
+            remote_agent.TASK_PID.write_text("4321\n")
+            self.assertEqual(remote_agent.cancel(None), 0)
+        killpg.assert_called_once_with(4321, remote_agent.signal.SIGTERM)
+
+    def test_cancel_with_idle_lock_removes_stale_pid_without_signal(self):
+        handle = mock.Mock()
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(remote_agent, "TASK_PID", Path(td) / "task.pid"), \
+             mock.patch.object(remote_agent, "lock", return_value=handle), \
+             mock.patch.object(remote_agent.os, "killpg") as killpg:
+            remote_agent.TASK_PID.write_text("4321\n")
+            self.assertEqual(remote_agent.cancel(None), 0)
+            self.assertFalse(remote_agent.TASK_PID.exists())
+        handle.close.assert_called_once()
+        killpg.assert_not_called()
 
 
 class LocalReapTests(unittest.TestCase):
