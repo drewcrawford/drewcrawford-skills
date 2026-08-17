@@ -4,7 +4,9 @@ credential_file = "~/.hetzner"
 image = "ubuntu-24.04"
 server_type = "ccx13"
 location = "ash"
-ssh_source_cidr = "203.0.113.10/32"
+# "auto" requires two agreeing public-address services and always resolves to
+# one public IPv4 /32, matching the VM's IPv4-only SSH path.
+ssh_source_cidr = "auto"
 ssh_private_key = "~/.ssh/id_ed25519"
 ssh_public_key = "~/.ssh/id_ed25519.pub"
 setup_script = "ops/quiet-machine-setup.sh"
@@ -15,3 +17,9 @@ billing_guard = "60s"
 sync_excludes = [".git/", "target/"]
 cache_paths = ["/home/quiet/.cargo/registry", "/home/quiet/.cargo/git"]
 artifact_dir = ".quiet-machine-out"
+
+# Hetzner's public API exposes usage but not this project's customized limit
+# values. Copy them from the Console Limits page to enable exact preflight.
+# [profiles.rust.quota]
+# servers = 5
+# dedicated_vcpus = 16

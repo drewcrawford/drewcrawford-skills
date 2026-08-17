@@ -62,6 +62,16 @@ class FingerprintTests(unittest.TestCase):
             profile.update(ssh_private_key="/two", credential_file="/other")
             self.assertEqual(first, qm.profile_hash(profile, root, "10"))
 
+    def test_operational_cidr_and_quota_do_not_change_setup_fingerprint(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile = {"name": "x", "ssh_source_cidr": "8.8.8.8/32",
+                       "quota": {"servers": 5, "dedicated_vcpus": 8}}
+            first = qm.profile_hash(profile, root, "10")
+            profile.update(ssh_source_cidr="1.1.1.1/32",
+                           quota={"servers": 10, "dedicated_vcpus": 32})
+            self.assertEqual(first, qm.profile_hash(profile, root, "10"))
+
     def test_installed_control_agent_changes_fingerprint(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -98,7 +108,10 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(args.apply)
 
     def test_interactive_shell_explicitly_requests_interactive_bash(self):
-        self.assertIn('"--", "bash", "-il"', SCRIPT.read_text())
+        source = SCRIPT.read_text()
+        self.assertIn('"/usr/local/sbin/quiet-machine-agent", "shell"', source)
+        self.assertIn('tty=True', source)
+        self.assertIn('"bash", "-il"', REMOTE_SCRIPT.read_text())
 
     def test_setup_reinstalls_fingerprinted_control_agent(self):
         source = SCRIPT.read_text()

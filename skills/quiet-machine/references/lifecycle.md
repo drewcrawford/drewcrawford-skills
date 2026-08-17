@@ -21,12 +21,21 @@ server. The default quantum is 60 minutes and guard is 60 seconds.
 - `busy`: informational label; the remote `flock` is authoritative.
 - `needs-repair`: setup failed; normal runs must not claim it.
 
-The remote controller holds `/run/quiet-machine/task.lock` and records the
-active task process group in `/run/quiet-machine/task.pid`. `cancel` signals
-only that group; the controller remains alive long enough to restore the ready
-label and lease deadline. A second caller
-must try the lock nonblockingly and create a new server on failure. The reaper
-deletes only while the lock is free, except at the hard deadline.
+The detached remote supervisor inherits `/run/quiet-machine/task.lock`, runs the
+workload in a dedicated transient systemd cgroup, and holds the job's
+`complete.lock` until terminal state and final log bytes are durable. `cancel
+JOB` records intent before stopping the complete transient unit; the supervisor
+remains alive long enough to write `cancelled`, restore the ready label, and
+retain the lease deadline. The unit has its own runtime ceiling, so supervisor
+loss cannot leave an unbounded workload behind. A second caller must acquire an
+authoritative deferred-start reservation before source sync and create a new
+server if the lock is held. The reaper deletes only while the lock is free,
+except at the current job's hard deadline.
+
+Durable execution states are `queued`, `running`, `success`, `failure`,
+`cancelled`, `timeout`, and `infrastructure_lost`. The local index is not the
+execution authority; it stores the config, VM, remote run directory, and cached
+result needed to reconnect by job ID.
 
 ## Credentials
 
